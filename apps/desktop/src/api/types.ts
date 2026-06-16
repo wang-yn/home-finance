@@ -1,0 +1,72 @@
+export type Household = {
+  id: number
+  name: string
+  status: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type Member = {
+  id: number
+  householdId: number
+  nickname: string
+  status: string
+  lastActiveAt?: string
+  createdAt: string
+  updatedAt?: string
+}
+
+export type Category = {
+  id: number
+  householdId: number
+  name: string
+  kind: string
+  color: string
+  sortOrder: number
+  status: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type Expense = {
+  id: number
+  householdId: number
+  memberId: number
+  categoryId: number
+  amountCents: number
+  currency: string
+  note: string
+  spentAt: string
+  deletedAt?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type AnalyticsSummary = {
+  householdId: number
+  totalCents: number
+  expenseCount: number
+}
+
+export type AdminStatus = {
+  serviceStatus: string
+  dbPath: string
+  householdCount: number
+  memberCount: number
+  expenseCount: number
+}
+
+export type JoinResult = {
+  household: Household
+  member: Member
+  token: string
+}
+
+export type AdminLoginResult = {
+  token: string
+  expiresAt: string
+}
+
+export type ApiEnvelope<T> = {
+  data: T
+}
