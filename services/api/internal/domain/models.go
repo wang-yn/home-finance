@@ -63,8 +63,11 @@ type Expense struct {
 }
 
 type AdminStatus struct {
-	HasHousehold bool `json:"hasHousehold"`
-	MemberCount  int  `json:"memberCount"`
+	ServiceStatus  string `json:"serviceStatus"`
+	DBPath         string `json:"dbPath"`
+	HouseholdCount int    `json:"householdCount"`
+	MemberCount    int    `json:"memberCount"`
+	ExpenseCount   int    `json:"expenseCount"`
 }
 
 type AnalyticsSummary struct {

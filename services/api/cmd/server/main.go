@@ -20,7 +20,10 @@ func main() {
 	}
 	defer db.Close()
 
-	server := httpapi.NewServer(db)
+	server := httpapi.NewServer(db, httpapi.Config{
+		AdminPassword: os.Getenv("HOME_FINANCE_ADMIN_PASSWORD"),
+		DBPath:        dbPath,
+	})
 	if err := server.Run(":8080"); err != nil {
 		log.Fatalf("run server: %v", err)
 	}

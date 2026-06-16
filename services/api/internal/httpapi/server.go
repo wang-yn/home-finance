@@ -13,14 +13,25 @@ import (
 type Server struct {
 	router *gin.Engine
 	store  *store.Store
+	config Config
 }
 
-func NewServer(store *store.Store) *Server {
+type Config struct {
+	AdminPassword string
+	DBPath        string
+}
+
+func NewServer(store *store.Store, configs ...Config) *Server {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
 
-	server := &Server{router: router, store: store}
+	config := Config{}
+	if len(configs) > 0 {
+		config = configs[0]
+	}
+
+	server := &Server{router: router, store: store, config: config}
 	server.routes()
 	return server
 }
@@ -35,6 +46,10 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) routes() {
 	s.router.GET("/health", s.health)
+	s.router.POST("/admin/login", s.adminLogin)
+
+	admin := s.router.Group("/admin", s.requireAdmin())
+	admin.GET("/status", s.adminStatus)
 
 	api := s.router.Group("/api")
 	api.GET("/households/:householdID/members", s.listMembers)
