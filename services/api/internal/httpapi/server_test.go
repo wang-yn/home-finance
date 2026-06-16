@@ -93,14 +93,9 @@ func TestAdminLoginWrongPasswordIsThrottledAndSuccessResetsFailures(t *testing.T
 		t.Fatalf("expected 429 after threshold, got %d: %s", throttledResponse.Code, throttledResponse.Body.String())
 	}
 
-	resetResponse := postAdminLogin(server, "secret")
-	if resetResponse.Code != http.StatusOK {
-		t.Fatalf("expected successful login to reset throttled client, got %d: %s", resetResponse.Code, resetResponse.Body.String())
-	}
-
-	afterThrottleResetResponse := postAdminLogin(server, "wrong")
-	if afterThrottleResetResponse.Code != http.StatusUnauthorized {
-		t.Fatalf("expected reset throttled client to get 401 on next wrong password, got %d: %s", afterThrottleResetResponse.Code, afterThrottleResetResponse.Body.String())
+	lockedCorrectPasswordResponse := postAdminLogin(server, "secret")
+	if lockedCorrectPasswordResponse.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected correct password during lockout to return 429, got %d: %s", lockedCorrectPasswordResponse.Code, lockedCorrectPasswordResponse.Body.String())
 	}
 
 	successServer := NewServer(db, Config{AdminPassword: "secret"})
@@ -119,6 +114,43 @@ func TestAdminLoginWrongPasswordIsThrottledAndSuccessResetsFailures(t *testing.T
 	afterResetResponse := postAdminLogin(successServer, "wrong")
 	if afterResetResponse.Code != http.StatusUnauthorized {
 		t.Fatalf("expected failure count reset after success, got %d: %s", afterResetResponse.Code, afterResetResponse.Body.String())
+	}
+}
+
+func TestAdminLoginLockoutExpires(t *testing.T) {
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close()
+
+	server := NewServer(db, Config{
+		AdminPassword:             "secret",
+		AdminLoginLockoutDuration: time.Millisecond,
+	})
+
+	for attempt := 1; attempt <= adminLoginFailureLimit; attempt++ {
+		response := postAdminLogin(server, "wrong")
+		if response.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d expected 401, got %d: %s", attempt, response.Code, response.Body.String())
+		}
+	}
+
+	lockedResponse := postAdminLogin(server, "wrong")
+	if lockedResponse.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 during lockout, got %d: %s", lockedResponse.Code, lockedResponse.Body.String())
+	}
+
+	lockedCorrectPasswordResponse := postAdminLogin(server, "secret")
+	if lockedCorrectPasswordResponse.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected correct password during lockout to return 429, got %d: %s", lockedCorrectPasswordResponse.Code, lockedCorrectPasswordResponse.Body.String())
+	}
+
+	time.Sleep(2 * time.Millisecond)
+
+	expiredResponse := postAdminLogin(server, "secret")
+	if expiredResponse.Code != http.StatusOK {
+		t.Fatalf("expected login 200 after lockout expiration, got %d: %s", expiredResponse.Code, expiredResponse.Body.String())
 	}
 }
 

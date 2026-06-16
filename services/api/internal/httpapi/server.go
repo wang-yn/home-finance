@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -15,13 +16,14 @@ type Server struct {
 	router             *gin.Engine
 	store              *store.Store
 	config             Config
-	adminLoginFailures map[string]int
+	adminLoginFailures map[string]adminLoginFailure
 	adminLoginMu       sync.Mutex
 }
 
 type Config struct {
-	AdminPassword string
-	DBPath        string
+	AdminPassword             string
+	DBPath                    string
+	AdminLoginLockoutDuration time.Duration
 }
 
 func NewServer(store *store.Store, configs ...Config) *Server {
@@ -33,12 +35,15 @@ func NewServer(store *store.Store, configs ...Config) *Server {
 	if len(configs) > 0 {
 		config = configs[0]
 	}
+	if config.AdminLoginLockoutDuration == 0 {
+		config.AdminLoginLockoutDuration = 5 * time.Minute
+	}
 
 	server := &Server{
 		router:             router,
 		store:              store,
 		config:             config,
-		adminLoginFailures: make(map[string]int),
+		adminLoginFailures: make(map[string]adminLoginFailure),
 	}
 	server.routes()
 	return server

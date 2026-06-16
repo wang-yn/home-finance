@@ -13,6 +13,11 @@ import (
 
 const adminLoginFailureLimit = 3
 
+type adminLoginFailure struct {
+	count       int
+	lockedUntil time.Time
+}
+
 func (s *Server) adminLogin(c *gin.Context) {
 	if s.config.AdminPassword == "" {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "admin password is not configured"})
@@ -27,6 +32,11 @@ func (s *Server) adminLogin(c *gin.Context) {
 		return
 	}
 	clientIP := c.ClientIP()
+	if s.isAdminLoginLocked(clientIP) {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "too many login attempts"})
+		return
+	}
+
 	validPassword := subtle.ConstantTimeCompare([]byte(store.HashSecret(input.Password)), []byte(store.HashSecret(s.config.AdminPassword))) == 1
 	if !validPassword {
 		if s.recordAdminLoginFailure(clientIP) {
@@ -56,8 +66,32 @@ func (s *Server) recordAdminLoginFailure(clientIP string) bool {
 	s.adminLoginMu.Lock()
 	defer s.adminLoginMu.Unlock()
 
-	s.adminLoginFailures[clientIP]++
-	return s.adminLoginFailures[clientIP] > adminLoginFailureLimit
+	failure := s.adminLoginFailures[clientIP]
+	failure.count++
+	if failure.count > adminLoginFailureLimit {
+		failure.lockedUntil = time.Now().UTC().Add(s.config.AdminLoginLockoutDuration)
+		s.adminLoginFailures[clientIP] = failure
+		return true
+	}
+
+	s.adminLoginFailures[clientIP] = failure
+	return false
+}
+
+func (s *Server) isAdminLoginLocked(clientIP string) bool {
+	s.adminLoginMu.Lock()
+	defer s.adminLoginMu.Unlock()
+
+	failure, ok := s.adminLoginFailures[clientIP]
+	if !ok || failure.lockedUntil.IsZero() {
+		return false
+	}
+	if time.Now().UTC().Before(failure.lockedUntil) {
+		return true
+	}
+
+	delete(s.adminLoginFailures, clientIP)
+	return false
 }
 
 func (s *Server) resetAdminLoginFailures(clientIP string) {
