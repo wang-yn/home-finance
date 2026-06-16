@@ -25,11 +25,9 @@ type InviteCode struct {
 	ID          int64      `json:"id"`
 	HouseholdID int64      `json:"householdId"`
 	CodeHash    string     `json:"-"`
-	CreatedByID *int64     `json:"createdById,omitempty"`
 	Status      string     `json:"status"`
-	ExpiresAt   time.Time  `json:"expiresAt"`
-	UsedByID    *int64     `json:"usedById,omitempty"`
-	UsedAt      *time.Time `json:"usedAt,omitempty"`
+	ExpiresAt   *time.Time `json:"expiresAt,omitempty"`
+	UsageCount  int        `json:"usageCount"`
 	CreatedAt   time.Time  `json:"createdAt"`
 }
 
@@ -94,9 +92,8 @@ type CreateMemberInput struct {
 }
 
 type CreateInviteCodeInput struct {
-	HouseholdID int64     `json:"householdId" binding:"required"`
-	CreatedByID *int64    `json:"createdById"`
-	ExpiresAt   time.Time `json:"expiresAt" binding:"required"`
+	HouseholdID int64      `json:"householdId" binding:"required"`
+	ExpiresAt   *time.Time `json:"expiresAt"`
 }
 
 type CreateCategoryInput struct {

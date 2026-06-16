@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS members (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	household_id INTEGER NOT NULL,
 	nickname TEXT NOT NULL,
-	session_token_hash TEXT NOT NULL DEFAULT '',
+	session_token_hash TEXT NOT NULL UNIQUE,
 	status TEXT NOT NULL DEFAULT 'active',
 	last_active_at TIMESTAMP,
 	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -27,15 +27,11 @@ CREATE TABLE IF NOT EXISTS invite_codes (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	household_id INTEGER NOT NULL,
 	code_hash TEXT NOT NULL UNIQUE,
-	created_by_id INTEGER,
 	status TEXT NOT NULL DEFAULT 'active',
-	expires_at TIMESTAMP NOT NULL,
-	used_by_id INTEGER,
-	used_at TIMESTAMP,
+	expires_at TIMESTAMP,
+	usage_count INTEGER NOT NULL DEFAULT 0,
 	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	FOREIGN KEY (household_id) REFERENCES households(id),
-	FOREIGN KEY (created_by_id) REFERENCES members(id),
-	FOREIGN KEY (used_by_id) REFERENCES members(id)
+	FOREIGN KEY (household_id) REFERENCES households(id)
 );
 
 CREATE TABLE IF NOT EXISTS categories (
@@ -43,7 +39,7 @@ CREATE TABLE IF NOT EXISTS categories (
 	household_id INTEGER NOT NULL,
 	name TEXT NOT NULL,
 	kind TEXT NOT NULL DEFAULT 'expense',
-	color TEXT NOT NULL DEFAULT '',
+	color TEXT NOT NULL DEFAULT '#64748b',
 	sort_order INTEGER NOT NULL DEFAULT 0,
 	status TEXT NOT NULL DEFAULT 'active',
 	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -79,5 +75,5 @@ CREATE INDEX IF NOT EXISTS idx_expenses_household_spent_at ON expenses(household
 CREATE INDEX IF NOT EXISTS idx_expenses_household_category ON expenses(household_id, category_id);
 CREATE INDEX IF NOT EXISTS idx_expenses_household_member ON expenses(household_id, member_id);
 CREATE INDEX IF NOT EXISTS idx_members_household_nickname ON members(household_id, nickname);
-CREATE INDEX IF NOT EXISTS idx_categories_household_sort ON categories(household_id, sort_order);
+CREATE INDEX IF NOT EXISTS idx_categories_household_sort ON categories(household_id, sort_order, name);
 `
