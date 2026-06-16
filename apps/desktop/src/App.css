@@ -4,6 +4,30 @@
   color: #172026;
 }
 
+.mode-switch {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px;
+  background: rgba(244, 247, 246, 0.95);
+  border-bottom: 1px solid #dfe7e8;
+}
+
+.mode-switch button {
+  min-height: 36px;
+  background: #ffffff;
+  color: #40545c;
+  border: 1px solid #dfe7e8;
+}
+
+.mode-switch button.active {
+  background: #172026;
+  color: #ffffff;
+}
+
 .workspace {
   display: grid;
   gap: 18px;
@@ -227,6 +251,41 @@ select {
   gap: 18px;
 }
 
+.admin-sidebar,
+.admin-main {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+}
+
+.admin-sidebar {
+  position: sticky;
+  top: 72px;
+}
+
+.admin-nav {
+  grid-template-columns: 1fr;
+}
+
+.inline-form {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  margin-bottom: 16px;
+}
+
+.download-link {
+  display: inline-grid;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  padding: 0 16px;
+  background: #0f766e;
+  color: #ffffff;
+  font-weight: 700;
+  text-decoration: none;
+}
+
 @media (max-width: 760px) {
   .workspace {
     padding: 16px;
@@ -241,6 +300,18 @@ select {
 
   .mobile-nav {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .admin-sidebar {
+    position: static;
+  }
+
+  .admin-nav {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .inline-form {
+    grid-template-columns: 1fr;
   }
 
   .metric-grid,

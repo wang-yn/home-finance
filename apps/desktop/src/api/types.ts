@@ -71,6 +71,16 @@ export type AdminLoginResult = {
   token: string
 }
 
+export type InviteCode = {
+  id: number
+  householdId: number
+  status: string
+  expiresAt?: string
+  usageCount: number
+  createdAt: string
+  code?: string
+}
+
 export type ApiEnvelope<T> = {
   data: T
 }
@@ -86,4 +96,16 @@ export type ExpenseInput = {
 export type DeleteExpenseResult = {
   id: number
   deleted: boolean
+}
+
+export type MemberUpdateInput = {
+  nickname: string
+  status: string
+}
+
+export type CategoryInput = {
+  name: string
+  kind: string
+  color: string
+  sortOrder: number
 }

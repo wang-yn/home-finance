@@ -1,13 +1,25 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createExpense,
+  createAdminCategory,
+  createHousehold,
+  createInviteCode,
   deleteExpense,
+  disableInviteCode,
+  exportExpensesCsvUrl,
   getCategories,
+  getAdminStatus,
   getExpenses,
   getMe,
   getMonthlyAnalytics,
+  listAdminCategories,
+  listHouseholds,
+  listMembers,
   request,
+  updateAdminCategory,
   updateExpense,
+  updateHousehold,
+  updateMember,
 } from './client'
 
 const fetchMock = vi.fn<typeof fetch>()
@@ -140,6 +152,75 @@ describe('device API helpers', () => {
     expect(created.id).toBe(30)
     expect(updated.note).toBe('晚餐')
     expect(deleted.deleted).toBe(true)
+  })
+})
+
+describe('admin API helpers', () => {
+  it('fetches status and household resources with admin auth', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ data: { serviceStatus: 'ok' } }))
+      .mockResolvedValueOnce(jsonResponse({ data: [{ id: 1, name: 'Home' }] }))
+      .mockResolvedValueOnce(jsonResponse({ data: [{ id: 2, nickname: '小王' }] }))
+      .mockResolvedValueOnce(jsonResponse({ data: [{ id: 3, name: '餐饮' }] }))
+
+    await getAdminStatus('http://localhost:8080', 'admin-token')
+    await listHouseholds('http://localhost:8080', 'admin-token')
+    await listMembers('http://localhost:8080', 'admin-token', 1)
+    await listAdminCategories('http://localhost:8080', 'admin-token', 1)
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('http://localhost:8080/admin/status')
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('http://localhost:8080/admin/households')
+    expect(fetchMock.mock.calls[2]?.[0]).toBe('http://localhost:8080/admin/households/1/members')
+    expect(fetchMock.mock.calls[3]?.[0]).toBe('http://localhost:8080/admin/households/1/categories')
+    expect(requestHeaders(3).get('Authorization')).toBe('Bearer admin-token')
+  })
+
+  it('creates and updates admin-managed resources', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ data: { id: 1, name: 'Home' } }, { status: 201 }))
+      .mockResolvedValueOnce(jsonResponse({ data: { id: 1, name: 'New Home' } }))
+      .mockResolvedValueOnce(jsonResponse({ data: { id: 2, code: 'abc' } }, { status: 201 }))
+      .mockResolvedValueOnce(jsonResponse({ data: { id: 2, status: 'disabled' } }))
+      .mockResolvedValueOnce(jsonResponse({ data: { id: 3, nickname: '小王', status: 'disabled' } }))
+      .mockResolvedValueOnce(jsonResponse({ data: { id: 4, name: '餐饮' } }, { status: 201 }))
+      .mockResolvedValueOnce(jsonResponse({ data: { id: 4, name: '晚餐' } }))
+
+    await createHousehold('http://localhost:8080', 'admin-token', 'Home')
+    await updateHousehold('http://localhost:8080', 'admin-token', 1, 'New Home')
+    await createInviteCode('http://localhost:8080', 'admin-token', 1, 7)
+    await disableInviteCode('http://localhost:8080', 'admin-token', 2)
+    await updateMember('http://localhost:8080', 'admin-token', 3, { nickname: '小王', status: 'disabled' })
+    await createAdminCategory('http://localhost:8080', 'admin-token', 1, {
+      name: '餐饮',
+      kind: 'expense',
+      color: '#dc2626',
+      sortOrder: 10,
+    })
+    await updateAdminCategory('http://localhost:8080', 'admin-token', 4, {
+      name: '晚餐',
+      kind: 'expense',
+      color: '#dc2626',
+      sortOrder: 20,
+    })
+
+    expect(requestInit(0).method).toBe('POST')
+    expect(JSON.parse(requestInit(0).body as string)).toEqual({ name: 'Home' })
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('http://localhost:8080/admin/households/1')
+    expect(JSON.parse(requestInit(2).body as string)).toEqual({ ttlDays: 7 })
+    expect(JSON.parse(requestInit(3).body as string)).toEqual({ status: 'disabled' })
+    expect(JSON.parse(requestInit(4).body as string)).toEqual({ nickname: '小王', status: 'disabled' })
+    expect(JSON.parse(requestInit(6).body as string)).toEqual({
+      name: '晚餐',
+      kind: 'expense',
+      color: '#dc2626',
+      sortOrder: 20,
+    })
+  })
+
+  it('builds CSV export URLs without making a request', () => {
+    expect(exportExpensesCsvUrl('http://localhost:8080/', 1, '2026-06')).toBe(
+      'http://localhost:8080/admin/exports/expenses.csv?householdId=1&month=2026-06',
+    )
   })
 })
 
