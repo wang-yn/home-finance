@@ -96,7 +96,7 @@ func (s *Server) listMembers(c *gin.Context) {
 
 	members, err := s.store.ListMembers(c.Request.Context(), householdID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "list members"})
+		writeAdminStoreError(c, err, "list members")
 		return
 	}
 

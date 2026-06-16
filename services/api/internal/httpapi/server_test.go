@@ -203,6 +203,24 @@ func TestAdminMissingHouseholdMembersReturnsNotFound(t *testing.T) {
 	}
 }
 
+func TestPublicMissingHouseholdMembersReturnsNotFound(t *testing.T) {
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close()
+
+	server := NewServer(db)
+	request := httptest.NewRequest(http.MethodGet, "/api/households/999/members", nil)
+	response := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("expected missing household members 404, got %d: %s", response.Code, response.Body.String())
+	}
+}
+
 func TestAdminLoginWrongPasswordIsThrottledAndSuccessResetsFailures(t *testing.T) {
 	db, err := store.Open(":memory:")
 	if err != nil {
