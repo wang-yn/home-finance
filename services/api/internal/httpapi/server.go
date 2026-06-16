@@ -78,11 +78,10 @@ func (s *Server) routes() {
 
 	protectedAPI := s.router.Group("/api", s.requireMember())
 	protectedAPI.GET("/me", s.me)
-
-	api := s.router.Group("/api")
-	api.GET("/households/:householdID/members", s.listMembers)
-	api.GET("/households/:householdID/expenses", s.listExpenses)
-	api.POST("/households/:householdID/expenses", s.createExpense)
+	protectedHouseholdAPI := protectedAPI.Group("/households/:householdID", s.requireHouseholdMember())
+	protectedHouseholdAPI.GET("/members", s.listMembers)
+	protectedHouseholdAPI.GET("/expenses", s.listExpenses)
+	protectedHouseholdAPI.POST("/expenses", s.createExpense)
 }
 
 func (s *Server) health(c *gin.Context) {

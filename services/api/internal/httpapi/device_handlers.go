@@ -51,6 +51,28 @@ func (s *Server) me(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": session})
 }
 
+func (s *Server) requireHouseholdMember() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		session, ok := memberSession(c)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "member session"})
+			return
+		}
+
+		householdID, ok := parseIDParam(c, "householdID")
+		if !ok {
+			c.Abort()
+			return
+		}
+		if session.Household.ID != householdID {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+			return
+		}
+
+		c.Next()
+	}
+}
+
 func (s *Server) requireMember() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := bearerToken(c.GetHeader("Authorization"))

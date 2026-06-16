@@ -2,9 +2,11 @@ package httpapi
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -269,6 +271,204 @@ func TestDeviceCanJoinHouseholdWithInviteCode(t *testing.T) {
 	}
 }
 
+func TestJoinRejectsInvalidDisabledAndExpiredInviteCodes(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "api.db")
+	db, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close()
+
+	server := NewServer(db, Config{AdminPassword: "secret"})
+	adminToken := loginAdmin(t, server)
+
+	invalidResponse := postJoin(server, "not-an-invite", "小王")
+	if invalidResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("invalid invite expected 401, got %d: %s", invalidResponse.Code, invalidResponse.Body.String())
+	}
+
+	_, inviteID, inviteCode := createHouseholdInvite(t, server, adminToken, "Home")
+	disableResponse := adminJSONRequest(t, server, adminToken, http.MethodPatch, "/admin/invite-codes/"+strconv.FormatInt(inviteID, 10), `{"status":"disabled"}`)
+	if disableResponse.Code != http.StatusOK {
+		t.Fatalf("expected disable invite 200, got %d: %s", disableResponse.Code, disableResponse.Body.String())
+	}
+	disabledResponse := postJoin(server, inviteCode, "小王")
+	if disabledResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("disabled invite expected 401, got %d: %s", disabledResponse.Code, disabledResponse.Body.String())
+	}
+
+	_, expiredInviteID, expiredInviteCode := createHouseholdInvite(t, server, adminToken, "Expired Home")
+	rawDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open raw sqlite db: %v", err)
+	}
+	defer rawDB.Close()
+	if _, err := rawDB.ExecContext(context.Background(), "UPDATE invite_codes SET expires_at = ? WHERE id = ?", time.Now().UTC().Add(-time.Hour), expiredInviteID); err != nil {
+		t.Fatalf("expire invite code: %v", err)
+	}
+	expiredResponse := postJoin(server, expiredInviteCode, "小王")
+	if expiredResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("expired invite expected 401, got %d: %s", expiredResponse.Code, expiredResponse.Body.String())
+	}
+}
+
+func TestMemberSessionRejectsMissingInvalidDisabledAndInactive(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "api.db")
+	db, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close()
+
+	server := NewServer(db, Config{AdminPassword: "secret"})
+	adminToken := loginAdmin(t, server)
+	_, _, inviteCode := createHouseholdInvite(t, server, adminToken, "Home")
+
+	missingBearerRequest := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	missingBearerResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(missingBearerResponse, missingBearerRequest)
+	if missingBearerResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("missing bearer expected 401, got %d: %s", missingBearerResponse.Code, missingBearerResponse.Body.String())
+	}
+
+	invalidBearerRequest := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	invalidBearerRequest.Header.Set("Authorization", "Bearer invalid")
+	invalidBearerResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(invalidBearerResponse, invalidBearerRequest)
+	if invalidBearerResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("invalid bearer expected 401, got %d: %s", invalidBearerResponse.Code, invalidBearerResponse.Body.String())
+	}
+
+	joinPayload := joinDevice(t, server, inviteCode, "小王")
+	disableMemberResponse := adminJSONRequest(t, server, adminToken, http.MethodPatch, "/admin/members/"+strconv.FormatInt(joinPayload.MemberID, 10), `{"nickname":"小王","status":"disabled"}`)
+	if disableMemberResponse.Code != http.StatusOK {
+		t.Fatalf("expected disable member 200, got %d: %s", disableMemberResponse.Code, disableMemberResponse.Body.String())
+	}
+	disabledMemberResponse := memberGET(server, "/api/me", joinPayload.Token)
+	if disabledMemberResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("disabled member token expected 401, got %d: %s", disabledMemberResponse.Code, disabledMemberResponse.Body.String())
+	}
+
+	_, _, activeInviteCode := createHouseholdInvite(t, server, adminToken, "Inactive Home")
+	activeJoinPayload := joinDevice(t, server, activeInviteCode, "小李")
+	rawDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open raw sqlite db: %v", err)
+	}
+	defer rawDB.Close()
+	if _, err := rawDB.ExecContext(context.Background(), "UPDATE households SET status = 'disabled' WHERE id = ?", activeJoinPayload.HouseholdID); err != nil {
+		t.Fatalf("disable household: %v", err)
+	}
+	inactiveHouseholdResponse := memberGET(server, "/api/me", activeJoinPayload.Token)
+	if inactiveHouseholdResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("inactive household token expected 401, got %d: %s", inactiveHouseholdResponse.Code, inactiveHouseholdResponse.Body.String())
+	}
+}
+
+func TestLegacyFinanceRoutesRequireMemberSessionAndMatchingHousehold(t *testing.T) {
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close()
+
+	server := NewServer(db, Config{AdminPassword: "secret"})
+	adminToken := loginAdmin(t, server)
+	householdID, _, inviteCode := createHouseholdInvite(t, server, adminToken, "Home")
+	otherHouseholdID, _, _ := createHouseholdInvite(t, server, adminToken, "Other Home")
+	joinPayload := joinDevice(t, server, inviteCode, "小王")
+
+	for _, route := range []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{http.MethodGet, "/api/households/" + strconv.FormatInt(householdID, 10) + "/members", ""},
+		{http.MethodGet, "/api/households/" + strconv.FormatInt(householdID, 10) + "/expenses", ""},
+		{http.MethodPost, "/api/households/" + strconv.FormatInt(householdID, 10) + "/expenses", `{"memberId":1,"categoryId":1,"amountCents":100,"spentAt":"2026-06-16T12:00:00Z"}`},
+	} {
+		request := httptest.NewRequest(route.method, route.path, strings.NewReader(route.body))
+		if route.body != "" {
+			request.Header.Set("Content-Type", "application/json")
+		}
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, request)
+		if response.Code != http.StatusUnauthorized {
+			t.Fatalf("%s %s missing bearer expected 401, got %d: %s", route.method, route.path, response.Code, response.Body.String())
+		}
+
+		wrongHouseholdPath := strings.Replace(route.path, strconv.FormatInt(householdID, 10), strconv.FormatInt(otherHouseholdID, 10), 1)
+		wrongHouseholdRequest := httptest.NewRequest(route.method, wrongHouseholdPath, strings.NewReader(route.body))
+		wrongHouseholdRequest.Header.Set("Authorization", "Bearer "+joinPayload.Token)
+		if route.body != "" {
+			wrongHouseholdRequest.Header.Set("Content-Type", "application/json")
+		}
+		wrongHouseholdResponse := httptest.NewRecorder()
+		server.Handler().ServeHTTP(wrongHouseholdResponse, wrongHouseholdRequest)
+		if wrongHouseholdResponse.Code != http.StatusForbidden {
+			t.Fatalf("%s %s wrong household expected 403, got %d: %s", route.method, wrongHouseholdPath, wrongHouseholdResponse.Code, wrongHouseholdResponse.Body.String())
+		}
+	}
+
+	membersResponse := memberGET(server, "/api/households/"+strconv.FormatInt(householdID, 10)+"/members", joinPayload.Token)
+	if membersResponse.Code != http.StatusOK {
+		t.Fatalf("matching household members expected 200, got %d: %s", membersResponse.Code, membersResponse.Body.String())
+	}
+}
+
+func TestInviteUsageCountIncrementsOnlyOnSuccessfulJoins(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "api.db")
+	db, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close()
+
+	server := NewServer(db, Config{AdminPassword: "secret"})
+	adminToken := loginAdmin(t, server)
+	_, inviteID, inviteCode := createHouseholdInvite(t, server, adminToken, "Home")
+	rawDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open raw sqlite db: %v", err)
+	}
+	defer rawDB.Close()
+
+	badNicknameResponse := postJoin(server, inviteCode, "   ")
+	if badNicknameResponse.Code != http.StatusBadRequest {
+		t.Fatalf("blank nickname expected 400, got %d: %s", badNicknameResponse.Code, badNicknameResponse.Body.String())
+	}
+	if usageCount(t, rawDB, inviteID) != 0 {
+		t.Fatalf("blank nickname should not increment usage_count")
+	}
+
+	invalidInviteResponse := postJoin(server, "invalid", "小王")
+	if invalidInviteResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("invalid invite expected 401, got %d: %s", invalidInviteResponse.Code, invalidInviteResponse.Body.String())
+	}
+	if usageCount(t, rawDB, inviteID) != 0 {
+		t.Fatalf("invalid invite should not increment usage_count")
+	}
+
+	successResponse := postJoin(server, inviteCode, "小王")
+	if successResponse.Code != http.StatusOK {
+		t.Fatalf("successful join expected 200, got %d: %s", successResponse.Code, successResponse.Body.String())
+	}
+	if usageCount(t, rawDB, inviteID) != 1 {
+		t.Fatalf("successful join should increment usage_count to 1")
+	}
+
+	if _, err := rawDB.ExecContext(context.Background(), "UPDATE invite_codes SET status = 'disabled' WHERE id = ?", inviteID); err != nil {
+		t.Fatalf("disable invite code: %v", err)
+	}
+	disabledResponse := postJoin(server, inviteCode, "小李")
+	if disabledResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("disabled invite expected 401, got %d: %s", disabledResponse.Code, disabledResponse.Body.String())
+	}
+	if usageCount(t, rawDB, inviteID) != 1 {
+		t.Fatalf("disabled invite should not increment usage_count")
+	}
+}
+
 func TestAdminMissingHouseholdCategoriesReturnsNotFound(t *testing.T) {
 	db, err := store.Open(":memory:")
 	if err != nil {
@@ -301,7 +501,7 @@ func TestAdminMissingHouseholdMembersReturnsNotFound(t *testing.T) {
 	}
 }
 
-func TestPublicMissingHouseholdMembersReturnsNotFound(t *testing.T) {
+func TestPublicMissingHouseholdMembersRequiresBearerToken(t *testing.T) {
 	db, err := store.Open(":memory:")
 	if err != nil {
 		t.Fatalf("open store: %v", err)
@@ -314,8 +514,8 @@ func TestPublicMissingHouseholdMembersReturnsNotFound(t *testing.T) {
 
 	server.Handler().ServeHTTP(response, request)
 
-	if response.Code != http.StatusNotFound {
-		t.Fatalf("expected missing household members 404, got %d: %s", response.Code, response.Body.String())
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("expected missing bearer 401, got %d: %s", response.Code, response.Body.String())
 	}
 }
 
@@ -511,6 +711,108 @@ func adminJSONRequest(t *testing.T, server *Server, token, method, path, body st
 	server.Handler().ServeHTTP(response, request)
 
 	return response
+}
+
+func createHouseholdInvite(t *testing.T, server *Server, adminToken, householdName string) (int64, int64, string) {
+	t.Helper()
+
+	createHouseholdResponse := adminJSONRequest(t, server, adminToken, http.MethodPost, "/admin/households", `{"name":"`+householdName+`"}`)
+	if createHouseholdResponse.Code != http.StatusCreated {
+		t.Fatalf("expected create household 201, got %d: %s", createHouseholdResponse.Code, createHouseholdResponse.Body.String())
+	}
+	var createHouseholdPayload struct {
+		Data struct {
+			ID int64 `json:"id"`
+		} `json:"data"`
+	}
+	decodeJSON(t, createHouseholdResponse, &createHouseholdPayload)
+	if createHouseholdPayload.Data.ID == 0 {
+		t.Fatalf("expected household id, got %#v", createHouseholdPayload.Data)
+	}
+
+	createInviteCodeResponse := adminJSONRequest(t, server, adminToken, http.MethodPost, "/admin/households/"+strconv.FormatInt(createHouseholdPayload.Data.ID, 10)+"/invite-codes", `{}`)
+	if createInviteCodeResponse.Code != http.StatusCreated {
+		t.Fatalf("expected create invite code 201, got %d: %s", createInviteCodeResponse.Code, createInviteCodeResponse.Body.String())
+	}
+	var createInviteCodePayload struct {
+		Data struct {
+			ID   int64  `json:"id"`
+			Code string `json:"code"`
+		} `json:"data"`
+	}
+	decodeJSON(t, createInviteCodeResponse, &createInviteCodePayload)
+	if createInviteCodePayload.Data.ID == 0 || createInviteCodePayload.Data.Code == "" {
+		t.Fatalf("unexpected invite code response: %#v", createInviteCodePayload.Data)
+	}
+
+	return createHouseholdPayload.Data.ID, createInviteCodePayload.Data.ID, createInviteCodePayload.Data.Code
+}
+
+type joinedDevice struct {
+	HouseholdID int64
+	MemberID    int64
+	Token       string
+}
+
+func joinDevice(t *testing.T, server *Server, inviteCode, nickname string) joinedDevice {
+	t.Helper()
+
+	response := postJoin(server, inviteCode, nickname)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected join 200, got %d: %s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		Data struct {
+			Household struct {
+				ID int64 `json:"id"`
+			} `json:"household"`
+			Member struct {
+				ID          int64 `json:"id"`
+				HouseholdID int64 `json:"householdId"`
+			} `json:"member"`
+			Token string `json:"token"`
+		} `json:"data"`
+	}
+	decodeJSON(t, response, &payload)
+	if payload.Data.Household.ID == 0 || payload.Data.Member.ID == 0 || payload.Data.Member.HouseholdID != payload.Data.Household.ID || payload.Data.Token == "" {
+		t.Fatalf("unexpected join payload: %#v", payload.Data)
+	}
+
+	return joinedDevice{
+		HouseholdID: payload.Data.Household.ID,
+		MemberID:    payload.Data.Member.ID,
+		Token:       payload.Data.Token,
+	}
+}
+
+func postJoin(server *Server, inviteCode, nickname string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(http.MethodPost, "/api/join", strings.NewReader(`{"inviteCode":"`+inviteCode+`","nickname":"`+nickname+`"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(response, request)
+
+	return response
+}
+
+func memberGET(server *Server, path, token string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(http.MethodGet, path, nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(response, request)
+
+	return response
+}
+
+func usageCount(t *testing.T, db *sql.DB, inviteID int64) int {
+	t.Helper()
+
+	var count int
+	if err := db.QueryRowContext(context.Background(), "SELECT usage_count FROM invite_codes WHERE id = ?", inviteID).Scan(&count); err != nil {
+		t.Fatalf("read usage_count: %v", err)
+	}
+	return count
 }
 
 func decodeJSON(t *testing.T, response *httptest.ResponseRecorder, target any) {

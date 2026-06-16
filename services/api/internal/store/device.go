@@ -40,6 +40,18 @@ func (s *Store) JoinHousehold(ctx context.Context, inviteCode, nickname string) 
 		return domain.JoinResult{}, err
 	}
 
+	usageResult, err := tx.ExecContext(ctx, `
+		UPDATE invite_codes
+		SET usage_count = usage_count + 1
+		WHERE id = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > ?)
+	`, invite.ID, now)
+	if err != nil {
+		return domain.JoinResult{}, err
+	}
+	if err := ensureChanged(usageResult); err != nil {
+		return domain.JoinResult{}, err
+	}
+
 	result, err := tx.ExecContext(ctx, `
 		INSERT INTO members (household_id, nickname, session_token_hash, status, last_active_at, created_at, updated_at)
 		VALUES (?, ?, ?, 'active', ?, ?, ?)
@@ -50,14 +62,6 @@ func (s *Store) JoinHousehold(ctx context.Context, inviteCode, nickname string) 
 
 	memberID, err := result.LastInsertId()
 	if err != nil {
-		return domain.JoinResult{}, err
-	}
-
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE invite_codes
-		SET usage_count = usage_count + 1
-		WHERE id = ?
-	`, invite.ID); err != nil {
 		return domain.JoinResult{}, err
 	}
 
