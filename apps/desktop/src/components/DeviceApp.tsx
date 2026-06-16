@@ -24,15 +24,23 @@ import { formatCents, formatMonth, fromLocalDateTimeInput, toLocalDateTimeInput 
 
 type View = 'connect' | 'join' | 'overview' | 'expenses' | 'analysis' | 'settings'
 
-const initialExpenseForm = {
-  categoryId: '',
-  amount: '',
-  currency: 'CNY',
-  note: '',
-  spentAt: toLocalDateTimeInput(new Date()),
+type ExpenseForm = {
+  categoryId: string
+  amount: string
+  currency: string
+  note: string
+  spentAt: string
 }
 
-type ExpenseForm = typeof initialExpenseForm
+function createInitialExpenseForm(categoryId = ''): ExpenseForm {
+  return {
+    categoryId,
+    amount: '',
+    currency: 'CNY',
+    note: '',
+    spentAt: toLocalDateTimeInput(new Date()),
+  }
+}
 
 export function DeviceApp() {
   const [activeServiceUrl, setActiveServiceUrl] = useState(loadServiceUrl)
@@ -46,7 +54,7 @@ export function DeviceApp() {
   const [month, setMonth] = useState(formatMonth(new Date()))
   const [inviteCode, setInviteCode] = useState('')
   const [nickname, setNickname] = useState('')
-  const [expenseForm, setExpenseForm] = useState<ExpenseForm>(initialExpenseForm)
+  const [expenseForm, setExpenseForm] = useState<ExpenseForm>(() => createInitialExpenseForm())
   const [editingID, setEditingID] = useState<number | null>(null)
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
@@ -158,7 +166,7 @@ export function DeviceApp() {
         await createExpense(activeServiceUrl, token, input)
         setStatus('支出已记录')
       }
-      setExpenseForm({ ...initialExpenseForm, categoryId: expenseForm.categoryId })
+      setExpenseForm(createInitialExpenseForm(expenseForm.categoryId))
       setEditingID(null)
       await refreshData(token)
       setView('expenses')
@@ -293,7 +301,7 @@ export function DeviceApp() {
               loading={loading}
               onCancel={() => {
                 setEditingID(null)
-                setExpenseForm(initialExpenseForm)
+                setExpenseForm(createInitialExpenseForm())
               }}
               onChange={setExpenseForm}
               onSubmit={submitExpense}
