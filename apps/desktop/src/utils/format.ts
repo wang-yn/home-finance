@@ -11,3 +11,17 @@ export function formatMonth(date: Date) {
   const month = `${date.getUTCMonth() + 1}`.padStart(2, '0')
   return `${year}-${month}`
 }
+
+export function toLocalDateTimeInput(isoInstant: string | Date) {
+  const date = isoInstant instanceof Date ? isoInstant : new Date(isoInstant)
+  const year = date.getFullYear()
+  const month = `${date.getMonth() + 1}`.padStart(2, '0')
+  const day = `${date.getDate()}`.padStart(2, '0')
+  const hours = `${date.getHours()}`.padStart(2, '0')
+  const minutes = `${date.getMinutes()}`.padStart(2, '0')
+  return `${year}-${month}-${day}T${hours}:${minutes}`
+}
+
+export function fromLocalDateTimeInput(value: string) {
+  return new Date(value).toISOString()
+}

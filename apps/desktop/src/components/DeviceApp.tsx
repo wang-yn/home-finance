@@ -20,7 +20,7 @@ import {
   saveMemberToken,
   saveServiceUrl,
 } from '../storage/session'
-import { formatCents, formatMonth } from '../utils/format'
+import { formatCents, formatMonth, fromLocalDateTimeInput, toLocalDateTimeInput } from '../utils/format'
 
 type View = 'connect' | 'join' | 'overview' | 'expenses' | 'analysis' | 'settings'
 
@@ -29,13 +29,14 @@ const initialExpenseForm = {
   amount: '',
   currency: 'CNY',
   note: '',
-  spentAt: new Date().toISOString().slice(0, 16),
+  spentAt: toLocalDateTimeInput(new Date()),
 }
 
 type ExpenseForm = typeof initialExpenseForm
 
 export function DeviceApp() {
-  const [serviceUrl, setServiceUrl] = useState(loadServiceUrl)
+  const [activeServiceUrl, setActiveServiceUrl] = useState(loadServiceUrl)
+  const [serviceUrlDraft, setServiceUrlDraft] = useState(activeServiceUrl)
   const [token, setToken] = useState(loadMemberToken)
   const [view, setView] = useState<View>(token ? 'overview' : 'connect')
   const [session, setSession] = useState<MemberSession | null>(null)
@@ -74,10 +75,10 @@ export function DeviceApp() {
     setError('')
     try {
       const [nextSession, nextCategories, nextExpenses, nextAnalytics] = await Promise.all([
-        getMe(serviceUrl, currentToken),
-        getCategories(serviceUrl, currentToken),
-        getExpenses(serviceUrl, currentToken, month),
-        getMonthlyAnalytics(serviceUrl, currentToken, month),
+        getMe(activeServiceUrl, currentToken),
+        getCategories(activeServiceUrl, currentToken),
+        getExpenses(activeServiceUrl, currentToken, month),
+        getMonthlyAnalytics(activeServiceUrl, currentToken, month),
       ])
       setSession(nextSession)
       setCategories(nextCategories)
@@ -91,7 +92,7 @@ export function DeviceApp() {
     } finally {
       setLoading(false)
     }
-  }, [handleError, logout, month, serviceUrl, token])
+  }, [activeServiceUrl, handleError, logout, month, token])
 
   useEffect(() => {
     if (!token) {
@@ -105,8 +106,9 @@ export function DeviceApp() {
     setLoading(true)
     setError('')
     try {
-      await health(serviceUrl)
-      saveServiceUrl(serviceUrl)
+      await health(serviceUrlDraft)
+      saveServiceUrl(serviceUrlDraft)
+      setActiveServiceUrl(serviceUrlDraft)
       setStatus('服务已连接')
       setView(token ? 'overview' : 'join')
     } catch (nextError) {
@@ -121,8 +123,8 @@ export function DeviceApp() {
     setLoading(true)
     setError('')
     try {
-      const result = await joinHousehold(serviceUrl, inviteCode.trim(), nickname.trim())
-      saveServiceUrl(serviceUrl)
+      const result = await joinHousehold(activeServiceUrl, inviteCode.trim(), nickname.trim())
+      saveServiceUrl(activeServiceUrl)
       saveMemberToken(result.token)
       setToken(result.token)
       setSession({ household: result.household, member: result.member })
@@ -150,10 +152,10 @@ export function DeviceApp() {
     setError('')
     try {
       if (editingID) {
-        await updateExpense(serviceUrl, token, editingID, input)
+        await updateExpense(activeServiceUrl, token, editingID, input)
         setStatus('支出已更新')
       } else {
-        await createExpense(serviceUrl, token, input)
+        await createExpense(activeServiceUrl, token, input)
         setStatus('支出已记录')
       }
       setExpenseForm({ ...initialExpenseForm, categoryId: expenseForm.categoryId })
@@ -174,7 +176,7 @@ export function DeviceApp() {
     setLoading(true)
     setError('')
     try {
-      await deleteExpense(serviceUrl, token, expenseID)
+      await deleteExpense(activeServiceUrl, token, expenseID)
       setStatus('支出已删除')
       await refreshData(token)
     } catch (nextError) {
@@ -191,7 +193,7 @@ export function DeviceApp() {
       amount: (expense.amountCents / 100).toFixed(2),
       currency: expense.currency,
       note: expense.note,
-      spentAt: expense.spentAt.slice(0, 16),
+      spentAt: toLocalDateTimeInput(expense.spentAt),
     })
     setView('expenses')
   }
@@ -235,7 +237,7 @@ export function DeviceApp() {
             <form className="form-grid" onSubmit={connect}>
               <label>
                 <span>服务地址</span>
-                <input value={serviceUrl} onChange={(event) => setServiceUrl(event.target.value)} />
+                <input value={serviceUrlDraft} onChange={(event) => setServiceUrlDraft(event.target.value)} />
               </label>
               <button type="submit" disabled={loading}>连接</button>
             </form>
@@ -335,7 +337,7 @@ export function DeviceApp() {
             <form className="form-grid" onSubmit={connect}>
               <label>
                 <span>服务地址</span>
-                <input value={serviceUrl} onChange={(event) => setServiceUrl(event.target.value)} />
+                <input value={serviceUrlDraft} onChange={(event) => setServiceUrlDraft(event.target.value)} />
               </label>
               <button type="submit" disabled={loading}>保存并测试</button>
               <button type="button" className="secondary" onClick={logout}>退出设备</button>
@@ -461,7 +463,7 @@ function buildExpenseInput(form: ExpenseForm): ExpenseInput | null {
     categoryId,
     currency: form.currency,
     note: form.note.trim(),
-    spentAt: new Date(form.spentAt).toISOString(),
+    spentAt: fromLocalDateTimeInput(form.spentAt),
   }
 }
 

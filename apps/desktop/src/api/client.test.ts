@@ -126,11 +126,17 @@ describe('device API helpers', () => {
     const deleted = await deleteExpense('http://localhost:8080', 'member-token', 30)
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe('http://localhost:8080/api/expenses')
-    expect((fetchMock.mock.calls[0]?.[1] as RequestInit).method).toBe('POST')
+    expect(requestInit(0).method).toBe('POST')
+    expect(requestHeaders(0).get('Authorization')).toBe('Bearer member-token')
+    expect(requestHeaders(0).get('Content-Type')).toBe('application/json')
+    expect(JSON.parse(requestInit(0).body as string)).toEqual(input)
     expect(fetchMock.mock.calls[1]?.[0]).toBe('http://localhost:8080/api/expenses/30')
-    expect((fetchMock.mock.calls[1]?.[1] as RequestInit).method).toBe('PATCH')
+    expect(requestInit(1).method).toBe('PATCH')
+    expect(requestHeaders(1).get('Authorization')).toBe('Bearer member-token')
+    expect(JSON.parse(requestInit(1).body as string)).toEqual({ ...input, note: '晚餐' })
     expect(fetchMock.mock.calls[2]?.[0]).toBe('http://localhost:8080/api/expenses/30')
-    expect((fetchMock.mock.calls[2]?.[1] as RequestInit).method).toBe('DELETE')
+    expect(requestInit(2).method).toBe('DELETE')
+    expect(requestHeaders(2).get('Authorization')).toBe('Bearer member-token')
     expect(created.id).toBe(30)
     expect(updated.note).toBe('晚餐')
     expect(deleted.deleted).toBe(true)
@@ -146,6 +152,13 @@ function jsonResponse(payload: unknown, init?: ResponseInit) {
 }
 
 function authHeader() {
-  const init = fetchMock.mock.calls.at(-1)?.[1] as RequestInit
-  return (init.headers as Headers).get('Authorization')
+  return requestHeaders(-1).get('Authorization')
+}
+
+function requestInit(index: number) {
+  return fetchMock.mock.calls.at(index)?.[1] as RequestInit
+}
+
+function requestHeaders(index: number) {
+  return requestInit(index).headers as Headers
 }
