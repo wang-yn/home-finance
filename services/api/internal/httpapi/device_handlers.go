@@ -51,6 +51,121 @@ func (s *Server) me(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": session})
 }
 
+func (s *Server) listCategories(c *gin.Context) {
+	session, ok := memberSession(c)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "member session"})
+		return
+	}
+
+	categories, err := s.store.ListActiveCategories(c.Request.Context(), session.Household.ID)
+	if err != nil {
+		writeMemberStoreError(c, err, "list categories")
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": categories})
+}
+
+func (s *Server) listExpenses(c *gin.Context) {
+	session, ok := memberSession(c)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "member session"})
+		return
+	}
+
+	expenses, err := s.store.ListExpenses(c.Request.Context(), session, domain.ExpenseFilter{Month: c.Query("month")})
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": expenses})
+}
+
+func (s *Server) createExpense(c *gin.Context) {
+	session, ok := memberSession(c)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "member session"})
+		return
+	}
+
+	var input domain.CreateExpenseInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid expense payload"})
+		return
+	}
+
+	expense, err := s.store.CreateExpense(c.Request.Context(), session, input)
+	if err != nil {
+		writeMemberStoreError(c, err, "create expense")
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"data": expense})
+}
+
+func (s *Server) updateExpense(c *gin.Context) {
+	session, ok := memberSession(c)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "member session"})
+		return
+	}
+	expenseID, ok := parseIDParam(c, "expenseID")
+	if !ok {
+		return
+	}
+
+	var input domain.UpdateExpenseInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid expense payload"})
+		return
+	}
+
+	expense, err := s.store.UpdateExpense(c.Request.Context(), session, expenseID, input)
+	if err != nil {
+		writeMemberStoreError(c, err, "update expense")
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": expense})
+}
+
+func (s *Server) deleteExpense(c *gin.Context) {
+	session, ok := memberSession(c)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "member session"})
+		return
+	}
+	expenseID, ok := parseIDParam(c, "expenseID")
+	if !ok {
+		return
+	}
+
+	if err := s.store.DeleteExpense(c.Request.Context(), session, expenseID); err != nil {
+		writeMemberStoreError(c, err, "delete expense")
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": gin.H{"id": expenseID, "deleted": true}})
+}
+
+func (s *Server) monthlyAnalytics(c *gin.Context) {
+	session, ok := memberSession(c)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "member session"})
+		return
+	}
+
+	summary, err := s.store.MonthlyAnalytics(c.Request.Context(), session, c.Query("month"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": summary})
+}
+
 func (s *Server) requireHouseholdMember() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		session, ok := memberSession(c)
@@ -103,4 +218,17 @@ func memberSession(c *gin.Context) (domain.MemberSession, bool) {
 	}
 	session, ok := value.(domain.MemberSession)
 	return session, ok
+}
+
+func writeMemberStoreError(c *gin.Context, err error, message string) {
+	if errors.Is(err, sql.ErrNoRows) {
+		c.JSON(http.StatusNotFound, gin.H{"error": message})
+		return
+	}
+	if strings.Contains(err.Error(), "invalid month") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusInternalServerError, gin.H{"error": message})
 }

@@ -416,6 +416,201 @@ func TestLegacyFinanceRoutesRequireMemberSessionAndMatchingHousehold(t *testing.
 	}
 }
 
+func TestDeviceExpenseCRUDAndMonthlyAnalytics(t *testing.T) {
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close()
+
+	server := NewServer(db, Config{AdminPassword: "secret"})
+	adminToken := loginAdmin(t, server)
+	_, _, inviteCode := createHouseholdInvite(t, server, adminToken, "Home")
+	joinPayload := joinDevice(t, server, inviteCode, "小王")
+
+	missingBearerResponse := jsonRequest(server, http.MethodGet, "/api/expenses", "", "")
+	if missingBearerResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("missing bearer expected 401, got %d: %s", missingBearerResponse.Code, missingBearerResponse.Body.String())
+	}
+
+	categoriesResponse := memberGET(server, "/api/categories", joinPayload.Token)
+	if categoriesResponse.Code != http.StatusOK {
+		t.Fatalf("expected categories 200, got %d: %s", categoriesResponse.Code, categoriesResponse.Body.String())
+	}
+	var categoriesPayload struct {
+		Data []struct {
+			ID     int64  `json:"id"`
+			Status string `json:"status"`
+		} `json:"data"`
+	}
+	decodeJSON(t, categoriesResponse, &categoriesPayload)
+	if len(categoriesPayload.Data) == 0 {
+		t.Fatal("expected active categories")
+	}
+	categoryID := categoriesPayload.Data[0].ID
+
+	createResponse := memberJSONRequest(server, joinPayload.Token, http.MethodPost, "/api/expenses", `{"amountCents":12345,"categoryId":`+strconv.FormatInt(categoryID, 10)+`,"spentAt":"2026-05-10T08:30:00Z","note":"午餐"}`)
+	if createResponse.Code != http.StatusCreated {
+		t.Fatalf("expected create expense 201, got %d: %s", createResponse.Code, createResponse.Body.String())
+	}
+	var createPayload struct {
+		Data struct {
+			ID          int64  `json:"id"`
+			MemberID    int64  `json:"memberId"`
+			CategoryID  int64  `json:"categoryId"`
+			AmountCents int64  `json:"amountCents"`
+			Note        string `json:"note"`
+		} `json:"data"`
+	}
+	decodeJSON(t, createResponse, &createPayload)
+	if createPayload.Data.ID == 0 || createPayload.Data.MemberID != joinPayload.MemberID || createPayload.Data.CategoryID != categoryID || createPayload.Data.AmountCents != 12345 || createPayload.Data.Note != "午餐" {
+		t.Fatalf("unexpected created expense: %#v", createPayload.Data)
+	}
+
+	listResponse := memberGET(server, "/api/expenses?month=2026-05", joinPayload.Token)
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("expected list expenses 200, got %d: %s", listResponse.Code, listResponse.Body.String())
+	}
+	var listPayload struct {
+		Data []struct {
+			ID          int64 `json:"id"`
+			AmountCents int64 `json:"amountCents"`
+		} `json:"data"`
+	}
+	decodeJSON(t, listResponse, &listPayload)
+	if len(listPayload.Data) != 1 || listPayload.Data[0].ID != createPayload.Data.ID || listPayload.Data[0].AmountCents != 12345 {
+		t.Fatalf("unexpected list payload: %#v", listPayload.Data)
+	}
+
+	patchResponse := memberJSONRequest(server, joinPayload.Token, http.MethodPatch, "/api/expenses/"+strconv.FormatInt(createPayload.Data.ID, 10), `{"amountCents":20000,"categoryId":`+strconv.FormatInt(categoryID, 10)+`,"spentAt":"2026-05-10T08:30:00Z","note":"晚餐"}`)
+	if patchResponse.Code != http.StatusOK {
+		t.Fatalf("expected patch expense 200, got %d: %s", patchResponse.Code, patchResponse.Body.String())
+	}
+
+	analyticsResponse := memberGET(server, "/api/analytics/monthly?month=2026-05", joinPayload.Token)
+	if analyticsResponse.Code != http.StatusOK {
+		t.Fatalf("expected monthly analytics 200, got %d: %s", analyticsResponse.Code, analyticsResponse.Body.String())
+	}
+	var analyticsPayload struct {
+		Data struct {
+			TotalCents   int64 `json:"totalCents"`
+			ExpenseCount int   `json:"expenseCount"`
+		} `json:"data"`
+	}
+	decodeJSON(t, analyticsResponse, &analyticsPayload)
+	if analyticsPayload.Data.TotalCents != 20000 || analyticsPayload.Data.ExpenseCount != 1 {
+		t.Fatalf("unexpected analytics payload: %#v", analyticsPayload.Data)
+	}
+
+	deleteResponse := memberJSONRequest(server, joinPayload.Token, http.MethodDelete, "/api/expenses/"+strconv.FormatInt(createPayload.Data.ID, 10), "")
+	if deleteResponse.Code != http.StatusOK {
+		t.Fatalf("expected delete expense 200, got %d: %s", deleteResponse.Code, deleteResponse.Body.String())
+	}
+
+	emptyListResponse := memberGET(server, "/api/expenses?month=2026-05", joinPayload.Token)
+	if emptyListResponse.Code != http.StatusOK {
+		t.Fatalf("expected list expenses after delete 200, got %d: %s", emptyListResponse.Code, emptyListResponse.Body.String())
+	}
+	var emptyListPayload struct {
+		Data []struct {
+			ID int64 `json:"id"`
+		} `json:"data"`
+	}
+	decodeJSON(t, emptyListResponse, &emptyListPayload)
+	if len(emptyListPayload.Data) != 0 {
+		t.Fatalf("expected no expenses after delete, got %#v", emptyListPayload.Data)
+	}
+}
+
+func TestAdminCanExportExpensesCSV(t *testing.T) {
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close()
+
+	server := NewServer(db, Config{AdminPassword: "secret"})
+	adminToken := loginAdmin(t, server)
+	householdID, _, inviteCode := createHouseholdInvite(t, server, adminToken, "Home")
+	joinPayload := joinDevice(t, server, inviteCode, "小王")
+	categoryID := firstCategoryID(t, server, joinPayload.Token)
+
+	createResponse := memberJSONRequest(server, joinPayload.Token, http.MethodPost, "/api/expenses", `{"amountCents":12345,"categoryId":`+strconv.FormatInt(categoryID, 10)+`,"spentAt":"2026-05-10T08:30:00Z","note":"午餐"}`)
+	if createResponse.Code != http.StatusCreated {
+		t.Fatalf("expected create expense 201, got %d: %s", createResponse.Code, createResponse.Body.String())
+	}
+
+	exportResponse := adminJSONRequest(t, server, adminToken, http.MethodGet, "/admin/exports/expenses.csv?householdId="+strconv.FormatInt(householdID, 10)+"&month=2026-05", "")
+	if exportResponse.Code != http.StatusOK {
+		t.Fatalf("expected export CSV 200, got %d: %s", exportResponse.Code, exportResponse.Body.String())
+	}
+	if contentType := exportResponse.Header().Get("Content-Type"); !strings.HasPrefix(contentType, "text/csv") {
+		t.Fatalf("expected text/csv content type, got %q", contentType)
+	}
+	lines := strings.Split(strings.TrimSpace(exportResponse.Body.String()), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected header and one data row, got %q", exportResponse.Body.String())
+	}
+	if lines[0] != "spent_at,member,category,amount,currency,note" {
+		t.Fatalf("unexpected CSV header %q", lines[0])
+	}
+	if !strings.Contains(lines[1], ",小王,") || !strings.Contains(lines[1], ",123.45,CNY,") {
+		t.Fatalf("unexpected CSV row %q", lines[1])
+	}
+}
+
+func TestDeviceExpenseRejectsCrossHouseholdAndInactiveCategory(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "api.db")
+	db, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close()
+
+	server := NewServer(db, Config{AdminPassword: "secret"})
+	adminToken := loginAdmin(t, server)
+	_, _, homeInviteCode := createHouseholdInvite(t, server, adminToken, "Home")
+	_, _, otherInviteCode := createHouseholdInvite(t, server, adminToken, "Other")
+	homeDevice := joinDevice(t, server, homeInviteCode, "小王")
+	otherDevice := joinDevice(t, server, otherInviteCode, "小李")
+	homeCategoryID := firstCategoryID(t, server, homeDevice.Token)
+	otherCategoryID := firstCategoryID(t, server, otherDevice.Token)
+
+	crossCategoryResponse := memberJSONRequest(server, homeDevice.Token, http.MethodPost, "/api/expenses", `{"amountCents":100,"categoryId":`+strconv.FormatInt(otherCategoryID, 10)+`,"spentAt":"2026-05-10T08:30:00Z","note":"wrong"}`)
+	if crossCategoryResponse.Code != http.StatusNotFound {
+		t.Fatalf("cross-household category expected 404, got %d: %s", crossCategoryResponse.Code, crossCategoryResponse.Body.String())
+	}
+
+	createResponse := memberJSONRequest(server, homeDevice.Token, http.MethodPost, "/api/expenses", `{"amountCents":100,"categoryId":`+strconv.FormatInt(homeCategoryID, 10)+`,"spentAt":"2026-05-10T08:30:00Z","note":"ok"}`)
+	if createResponse.Code != http.StatusCreated {
+		t.Fatalf("expected create expense 201, got %d: %s", createResponse.Code, createResponse.Body.String())
+	}
+	var createPayload struct {
+		Data struct {
+			ID int64 `json:"id"`
+		} `json:"data"`
+	}
+	decodeJSON(t, createResponse, &createPayload)
+
+	crossDeleteResponse := memberJSONRequest(server, otherDevice.Token, http.MethodDelete, "/api/expenses/"+strconv.FormatInt(createPayload.Data.ID, 10), "")
+	if crossDeleteResponse.Code != http.StatusNotFound {
+		t.Fatalf("cross-household delete expected 404, got %d: %s", crossDeleteResponse.Code, crossDeleteResponse.Body.String())
+	}
+
+	rawDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open raw sqlite db: %v", err)
+	}
+	defer rawDB.Close()
+	if _, err := rawDB.ExecContext(context.Background(), "UPDATE categories SET status = 'disabled' WHERE id = ?", homeCategoryID); err != nil {
+		t.Fatalf("disable category: %v", err)
+	}
+	inactiveCategoryResponse := memberJSONRequest(server, homeDevice.Token, http.MethodPost, "/api/expenses", `{"amountCents":100,"categoryId":`+strconv.FormatInt(homeCategoryID, 10)+`,"spentAt":"2026-05-10T08:30:00Z","note":"disabled"}`)
+	if inactiveCategoryResponse.Code != http.StatusNotFound {
+		t.Fatalf("inactive category expected 404, got %d: %s", inactiveCategoryResponse.Code, inactiveCategoryResponse.Body.String())
+	}
+}
+
 func TestInviteUsageCountIncrementsOnlyOnSuccessfulJoins(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "api.db")
 	db, err := store.Open(dbPath)
@@ -803,6 +998,42 @@ func memberGET(server *Server, path, token string) *httptest.ResponseRecorder {
 	server.Handler().ServeHTTP(response, request)
 
 	return response
+}
+
+func memberJSONRequest(server *Server, token, method, path, body string) *httptest.ResponseRecorder {
+	return jsonRequest(server, method, path, token, body)
+}
+
+func jsonRequest(server *Server, method, path, token, body string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(method, path, strings.NewReader(body))
+	if token != "" {
+		request.Header.Set("Authorization", "Bearer "+token)
+	}
+	if body != "" {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	return response
+}
+
+func firstCategoryID(t *testing.T, server *Server, token string) int64 {
+	t.Helper()
+
+	response := memberGET(server, "/api/categories", token)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected categories 200, got %d: %s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		Data []struct {
+			ID int64 `json:"id"`
+		} `json:"data"`
+	}
+	decodeJSON(t, response, &payload)
+	if len(payload.Data) == 0 || payload.Data[0].ID == 0 {
+		t.Fatalf("expected at least one category, got %#v", payload.Data)
+	}
+	return payload.Data[0].ID
 }
 
 func usageCount(t *testing.T, db *sql.DB, inviteID int64) int {

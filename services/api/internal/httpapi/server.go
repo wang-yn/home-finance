@@ -73,15 +73,22 @@ func (s *Server) routes() {
 	admin.GET("/households/:householdID/categories", s.adminListCategories)
 	admin.POST("/households/:householdID/categories", s.adminCreateCategory)
 	admin.PATCH("/categories/:categoryID", s.adminUpdateCategory)
+	admin.GET("/exports/expenses.csv", s.adminExportExpensesCSV)
 
 	s.router.POST("/api/join", s.join)
 
 	protectedAPI := s.router.Group("/api", s.requireMember())
 	protectedAPI.GET("/me", s.me)
+	protectedAPI.GET("/categories", s.listCategories)
+	protectedAPI.GET("/expenses", s.listExpenses)
+	protectedAPI.POST("/expenses", s.createExpense)
+	protectedAPI.PATCH("/expenses/:expenseID", s.updateExpense)
+	protectedAPI.DELETE("/expenses/:expenseID", s.deleteExpense)
+	protectedAPI.GET("/analytics/monthly", s.monthlyAnalytics)
 	protectedHouseholdAPI := protectedAPI.Group("/households/:householdID", s.requireHouseholdMember())
 	protectedHouseholdAPI.GET("/members", s.listMembers)
-	protectedHouseholdAPI.GET("/expenses", s.listExpenses)
-	protectedHouseholdAPI.POST("/expenses", s.createExpense)
+	protectedHouseholdAPI.GET("/expenses", s.legacyListExpenses)
+	protectedHouseholdAPI.POST("/expenses", s.legacyCreateExpense)
 }
 
 func (s *Server) health(c *gin.Context) {
@@ -107,13 +114,13 @@ func (s *Server) listMembers(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": members})
 }
 
-func (s *Server) listExpenses(c *gin.Context) {
+func (s *Server) legacyListExpenses(c *gin.Context) {
 	householdID, ok := parseIDParam(c, "householdID")
 	if !ok {
 		return
 	}
 
-	expenses, err := s.store.ListExpenses(c.Request.Context(), householdID)
+	expenses, err := s.store.ListExpensesForHousehold(c.Request.Context(), householdID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "list expenses"})
 		return
@@ -122,7 +129,7 @@ func (s *Server) listExpenses(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": expenses})
 }
 
-func (s *Server) createExpense(c *gin.Context) {
+func (s *Server) legacyCreateExpense(c *gin.Context) {
 	householdID, ok := parseIDParam(c, "householdID")
 	if !ok {
 		return
@@ -134,7 +141,7 @@ func (s *Server) createExpense(c *gin.Context) {
 		return
 	}
 
-	expense, err := s.store.CreateExpense(c.Request.Context(), householdID, input)
+	expense, err := s.store.CreateExpenseForHousehold(c.Request.Context(), householdID, input)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

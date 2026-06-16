@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"time"
 
 	"home-finance/services/api/internal/domain"
@@ -67,6 +68,49 @@ func (s *Store) AdminStatus(ctx context.Context, dbPath string) (domain.AdminSta
 	}
 
 	return status, nil
+}
+
+func (s *Store) ExportExpensesCSVRows(ctx context.Context, householdID int64, month string) ([]domain.ExpenseCSVRow, error) {
+	if _, err := s.householdByID(ctx, householdID); err != nil {
+		return nil, err
+	}
+
+	query := `
+		SELECT e.spent_at, m.nickname, c.name, e.amount_cents, e.currency, e.note
+		FROM expenses e
+		INNER JOIN members m ON m.id = e.member_id
+		INNER JOIN categories c ON c.id = e.category_id
+		WHERE e.household_id = ? AND e.deleted_at IS NULL
+	`
+	args := []any{householdID}
+	if month != "" {
+		start, end, err := monthBounds(month)
+		if err != nil {
+			return nil, err
+		}
+		query += " AND e.spent_at >= ? AND e.spent_at < ?"
+		args = append(args, start, end)
+	}
+	query += " ORDER BY e.spent_at ASC, e.id ASC"
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	csvRows := []domain.ExpenseCSVRow{}
+	for rows.Next() {
+		var row domain.ExpenseCSVRow
+		var amountCents int64
+		if err := rows.Scan(&row.SpentAt, &row.Member, &row.Category, &amountCents, &row.Currency, &row.Note); err != nil {
+			return nil, err
+		}
+		row.Amount = fmt.Sprintf("%d.%02d", amountCents/100, amountCents%100)
+		csvRows = append(csvRows, row)
+	}
+
+	return csvRows, rows.Err()
 }
 
 func (s *Store) CreateHousehold(ctx context.Context, name string) (domain.Household, error) {

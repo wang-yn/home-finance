@@ -88,12 +88,33 @@ type AnalyticsSummary struct {
 }
 
 type CreateExpenseInput struct {
-	MemberID    int64     `json:"memberId" binding:"required"`
+	MemberID    int64     `json:"memberId"`
 	CategoryID  int64     `json:"categoryId" binding:"required"`
 	AmountCents int64     `json:"amountCents" binding:"required,min=1"`
 	Currency    string    `json:"currency"`
 	Note        string    `json:"note"`
 	SpentAt     time.Time `json:"spentAt" binding:"required"`
+}
+
+type UpdateExpenseInput struct {
+	CategoryID  int64     `json:"categoryId" binding:"required"`
+	AmountCents int64     `json:"amountCents" binding:"required,min=1"`
+	Currency    string    `json:"currency"`
+	Note        string    `json:"note"`
+	SpentAt     time.Time `json:"spentAt" binding:"required"`
+}
+
+type ExpenseFilter struct {
+	Month string
+}
+
+type ExpenseCSVRow struct {
+	SpentAt  time.Time
+	Member   string
+	Category string
+	Amount   string
+	Currency string
+	Note     string
 }
 
 type CreateHouseholdInput struct {

@@ -112,7 +112,7 @@ func TestOpenMigratesInitialSchemaDatabase(t *testing.T) {
 		t.Fatalf("migrated members = %#v, want one member with nickname Alice", members)
 	}
 
-	created, err := db.CreateExpense(context.Background(), 1, domain.CreateExpenseInput{
+	created, err := db.CreateExpenseForHousehold(context.Background(), 1, domain.CreateExpenseInput{
 		MemberID:    1,
 		CategoryID:  1,
 		AmountCents: 1234,
@@ -127,7 +127,7 @@ func TestOpenMigratesInitialSchemaDatabase(t *testing.T) {
 		t.Fatalf("created expense missing updated_at: %#v", created)
 	}
 
-	expenses, err := db.ListExpenses(context.Background(), 1)
+	expenses, err := db.ListExpensesForHousehold(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("list expenses after migration: %v", err)
 	}

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"home-finance/services/api/internal/domain"
 
@@ -77,78 +76,6 @@ func (s *Store) ListMembers(ctx context.Context, householdID int64) ([]domain.Me
 	}
 
 	return members, rows.Err()
-}
-
-func (s *Store) ListExpenses(ctx context.Context, householdID int64) ([]domain.Expense, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, household_id, member_id, category_id, amount_cents, currency, note, spent_at, deleted_at, created_at, updated_at
-		FROM expenses
-		WHERE household_id = ? AND deleted_at IS NULL
-		ORDER BY spent_at DESC, id DESC
-	`, householdID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	expenses := []domain.Expense{}
-	for rows.Next() {
-		var expense domain.Expense
-		if err := rows.Scan(
-			&expense.ID,
-			&expense.HouseholdID,
-			&expense.MemberID,
-			&expense.CategoryID,
-			&expense.AmountCents,
-			&expense.Currency,
-			&expense.Note,
-			&expense.SpentAt,
-			&expense.DeletedAt,
-			&expense.CreatedAt,
-			&expense.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		expenses = append(expenses, expense)
-	}
-
-	return expenses, rows.Err()
-}
-
-func (s *Store) CreateExpense(ctx context.Context, householdID int64, input domain.CreateExpenseInput) (domain.Expense, error) {
-	if input.Currency == "" {
-		input.Currency = "CNY"
-	}
-	if input.AmountCents <= 0 {
-		return domain.Expense{}, errors.New("amount must be positive")
-	}
-
-	now := time.Now().UTC()
-	result, err := s.db.ExecContext(ctx, `
-		INSERT INTO expenses (household_id, member_id, category_id, amount_cents, currency, note, spent_at, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, householdID, input.MemberID, input.CategoryID, input.AmountCents, input.Currency, input.Note, input.SpentAt.UTC(), now, now)
-	if err != nil {
-		return domain.Expense{}, err
-	}
-
-	id, err := result.LastInsertId()
-	if err != nil {
-		return domain.Expense{}, err
-	}
-
-	return domain.Expense{
-		ID:          id,
-		HouseholdID: householdID,
-		MemberID:    input.MemberID,
-		CategoryID:  input.CategoryID,
-		AmountCents: input.AmountCents,
-		Currency:    input.Currency,
-		Note:        input.Note,
-		SpentAt:     input.SpentAt.UTC(),
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	}, nil
 }
 
 func (s *Store) migrate(ctx context.Context) error {

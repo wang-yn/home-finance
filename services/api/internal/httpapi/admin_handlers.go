@@ -3,8 +3,10 @@ package httpapi
 import (
 	"crypto/subtle"
 	"database/sql"
+	"encoding/csv"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -112,6 +114,47 @@ func (s *Server) adminStatus(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": status})
+}
+
+func (s *Server) adminExportExpensesCSV(c *gin.Context) {
+	householdIDText := strings.TrimSpace(c.Query("householdId"))
+	householdID, err := strconv.ParseInt(householdIDText, 10, 64)
+	if err != nil || householdID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid householdId"})
+		return
+	}
+
+	rows, err := s.store.ExportExpensesCSVRows(c.Request.Context(), householdID, c.Query("month"))
+	if err != nil {
+		writeAdminStoreError(c, err, "export expenses")
+		return
+	}
+
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", `attachment; filename="expenses.csv"`)
+	writer := csv.NewWriter(c.Writer)
+	if err := writer.Write([]string{"spent_at", "member", "category", "amount", "currency", "note"}); err != nil {
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+	for _, row := range rows {
+		if err := writer.Write([]string{
+			row.SpentAt.Format(time.RFC3339),
+			row.Member,
+			row.Category,
+			row.Amount,
+			row.Currency,
+			row.Note,
+		}); err != nil {
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+	}
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		c.Status(http.StatusInternalServerError)
+		return
+	}
 }
 
 func (s *Server) adminListHouseholds(c *gin.Context) {
