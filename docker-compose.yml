@@ -1,0 +1,23 @@
+services:
+  api:
+    image: ghcr.io/wang-yn/home-finance-api:latest
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      HOME_FINANCE_DB_PATH: /data/home-finance.db
+      HOME_FINANCE_ADMIN_PASSWORD: ${HOME_FINANCE_ADMIN_PASSWORD:?set HOME_FINANCE_ADMIN_PASSWORD before starting}
+    volumes:
+      - home-finance-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health >/dev/null 2>&1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  home-finance-data:

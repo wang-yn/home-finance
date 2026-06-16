@@ -1,0 +1,14 @@
+.git
+.github
+.omx
+**/.DS_Store
+**/node_modules
+**/dist
+**/target
+**/*.db
+**/*.db-*
+**/*.sqlite
+**/*.sqlite3
+apps/desktop/src-tauri/gen
+apps/desktop/src-tauri/target
+apps/desktop/dist
