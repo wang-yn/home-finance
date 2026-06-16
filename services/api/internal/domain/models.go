@@ -82,9 +82,19 @@ type AdminStatus struct {
 }
 
 type AnalyticsSummary struct {
-	HouseholdID  int64 `json:"householdId"`
-	TotalCents   int64 `json:"totalCents"`
-	ExpenseCount int   `json:"expenseCount"`
+	HouseholdID    int64                `json:"householdId"`
+	TotalCents     int64                `json:"totalCents"`
+	ExpenseCount   int                  `json:"expenseCount"`
+	ByCategory     []AnalyticsBreakdown `json:"byCategory"`
+	ByMember       []AnalyticsBreakdown `json:"byMember"`
+	RecentExpenses []Expense            `json:"recentExpenses"`
+}
+
+type AnalyticsBreakdown struct {
+	ID           int64  `json:"id"`
+	Name         string `json:"name"`
+	TotalCents   int64  `json:"totalCents"`
+	ExpenseCount int    `json:"expenseCount"`
 }
 
 type CreateExpenseInput struct {
@@ -105,7 +115,9 @@ type UpdateExpenseInput struct {
 }
 
 type ExpenseFilter struct {
-	Month string
+	Month      string
+	CategoryID int64
+	MemberID   int64
 }
 
 type ExpenseCSVRow struct {
@@ -137,4 +149,5 @@ type CreateCategoryInput struct {
 	Kind        string `json:"kind"`
 	Color       string `json:"color"`
 	SortOrder   int    `json:"sortOrder"`
+	Status      string `json:"status"`
 }

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -74,7 +75,11 @@ func (s *Server) listExpenses(c *gin.Context) {
 		return
 	}
 
-	expenses, err := s.store.ListExpenses(c.Request.Context(), session, domain.ExpenseFilter{Month: c.Query("month")})
+	filter, ok := expenseFilterFromQuery(c)
+	if !ok {
+		return
+	}
+	expenses, err := s.store.ListExpenses(c.Request.Context(), session, filter)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -231,4 +236,25 @@ func writeMemberStoreError(c *gin.Context, err error, message string) {
 	}
 
 	c.JSON(http.StatusInternalServerError, gin.H{"error": message})
+}
+
+func expenseFilterFromQuery(c *gin.Context) (domain.ExpenseFilter, bool) {
+	filter := domain.ExpenseFilter{Month: c.Query("month")}
+	if categoryIDText := strings.TrimSpace(c.Query("categoryId")); categoryIDText != "" {
+		categoryID, err := strconv.ParseInt(categoryIDText, 10, 64)
+		if err != nil || categoryID <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid categoryId"})
+			return domain.ExpenseFilter{}, false
+		}
+		filter.CategoryID = categoryID
+	}
+	if memberIDText := strings.TrimSpace(c.Query("memberId")); memberIDText != "" {
+		memberID, err := strconv.ParseInt(memberIDText, 10, 64)
+		if err != nil || memberID <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid memberId"})
+			return domain.ExpenseFilter{}, false
+		}
+		filter.MemberID = memberID
+	}
+	return filter, true
 }

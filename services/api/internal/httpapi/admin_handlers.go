@@ -278,6 +278,21 @@ func (s *Server) adminDisableInviteCode(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{"id": inviteCodeID, "status": "disabled"}})
 }
 
+func (s *Server) adminListInviteCodes(c *gin.Context) {
+	householdID, ok := parseIDParam(c, "householdID")
+	if !ok {
+		return
+	}
+
+	inviteCodes, err := s.store.ListInviteCodes(c.Request.Context(), householdID)
+	if err != nil {
+		writeAdminStoreError(c, err, "list invite codes")
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": inviteCodes})
+}
+
 func (s *Server) adminListMembers(c *gin.Context) {
 	householdID, ok := parseIDParam(c, "householdID")
 	if !ok {
@@ -375,6 +390,7 @@ func (s *Server) adminUpdateCategory(c *gin.Context) {
 		Kind      string `json:"kind"`
 		Color     string `json:"color"`
 		SortOrder int    `json:"sortOrder"`
+		Status    string `json:"status"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid category payload"})
@@ -386,6 +402,7 @@ func (s *Server) adminUpdateCategory(c *gin.Context) {
 		Kind:      input.Kind,
 		Color:     input.Color,
 		SortOrder: input.SortOrder,
+		Status:    input.Status,
 	})
 	if err != nil {
 		writeAdminStoreError(c, err, "update category")

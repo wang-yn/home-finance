@@ -232,6 +232,14 @@ func (s *Store) ListExpenses(ctx context.Context, session domain.MemberSession, 
 		query += " AND spent_at >= ? AND spent_at < ?"
 		args = append(args, start, end)
 	}
+	if filter.CategoryID > 0 {
+		query += " AND category_id = ?"
+		args = append(args, filter.CategoryID)
+	}
+	if filter.MemberID > 0 {
+		query += " AND member_id = ?"
+		args = append(args, filter.MemberID)
+	}
 	query += " ORDER BY spent_at DESC, id DESC"
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -272,7 +280,58 @@ func (s *Store) MonthlyAnalytics(ctx context.Context, session domain.MemberSessi
 		return domain.AnalyticsSummary{}, err
 	}
 
+	summary.ByCategory, err = s.analyticsBreakdown(ctx, `
+		SELECT c.id, c.name, COALESCE(SUM(e.amount_cents), 0), COUNT(*)
+		FROM expenses e
+		INNER JOIN categories c ON c.id = e.category_id AND c.household_id = e.household_id
+		WHERE e.household_id = ? AND e.deleted_at IS NULL AND e.spent_at >= ? AND e.spent_at < ?
+		GROUP BY c.id, c.name
+		ORDER BY SUM(e.amount_cents) DESC, c.sort_order ASC, c.name ASC
+	`, session.Household.ID, start, end)
+	if err != nil {
+		return domain.AnalyticsSummary{}, err
+	}
+
+	summary.ByMember, err = s.analyticsBreakdown(ctx, `
+		SELECT m.id, m.nickname, COALESCE(SUM(e.amount_cents), 0), COUNT(*)
+		FROM expenses e
+		INNER JOIN members m ON m.id = e.member_id AND m.household_id = e.household_id
+		WHERE e.household_id = ? AND e.deleted_at IS NULL AND e.spent_at >= ? AND e.spent_at < ?
+		GROUP BY m.id, m.nickname
+		ORDER BY SUM(e.amount_cents) DESC, m.nickname ASC
+	`, session.Household.ID, start, end)
+	if err != nil {
+		return domain.AnalyticsSummary{}, err
+	}
+
+	summary.RecentExpenses, err = s.ListExpenses(ctx, session, domain.ExpenseFilter{Month: month})
+	if err != nil {
+		return domain.AnalyticsSummary{}, err
+	}
+	if len(summary.RecentExpenses) > 5 {
+		summary.RecentExpenses = summary.RecentExpenses[:5]
+	}
+
 	return summary, nil
+}
+
+func (s *Store) analyticsBreakdown(ctx context.Context, query string, args ...any) ([]domain.AnalyticsBreakdown, error) {
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	breakdowns := []domain.AnalyticsBreakdown{}
+	for rows.Next() {
+		var item domain.AnalyticsBreakdown
+		if err := rows.Scan(&item.ID, &item.Name, &item.TotalCents, &item.ExpenseCount); err != nil {
+			return nil, err
+		}
+		breakdowns = append(breakdowns, item)
+	}
+
+	return breakdowns, rows.Err()
 }
 
 func (s *Store) createExpenseWithMember(ctx context.Context, session domain.MemberSession, input domain.CreateExpenseInput) (domain.Expense, error) {

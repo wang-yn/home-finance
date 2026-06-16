@@ -68,6 +68,7 @@ func (s *Server) routes() {
 	admin.PATCH("/households/:householdID", s.adminUpdateHousehold)
 	admin.POST("/households/:householdID/invite-codes", s.adminCreateInviteCode)
 	admin.PATCH("/invite-codes/:inviteCodeID", s.adminDisableInviteCode)
+	admin.GET("/households/:householdID/invite-codes", s.adminListInviteCodes)
 	admin.GET("/households/:householdID/members", s.adminListMembers)
 	admin.PATCH("/members/:memberID", s.adminUpdateMember)
 	admin.GET("/households/:householdID/categories", s.adminListCategories)

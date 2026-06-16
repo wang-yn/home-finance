@@ -249,6 +249,42 @@ func (s *Store) DisableInviteCode(ctx context.Context, id int64) error {
 	return ensureChanged(result)
 }
 
+func (s *Store) ListInviteCodes(ctx context.Context, householdID int64) ([]domain.InviteCode, error) {
+	if _, err := s.householdByID(ctx, householdID); err != nil {
+		return nil, err
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, household_id, code_hash, status, expires_at, usage_count, created_at
+		FROM invite_codes
+		WHERE household_id = ?
+		ORDER BY created_at DESC, id DESC
+	`, householdID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	inviteCodes := []domain.InviteCode{}
+	for rows.Next() {
+		var inviteCode domain.InviteCode
+		if err := rows.Scan(
+			&inviteCode.ID,
+			&inviteCode.HouseholdID,
+			&inviteCode.CodeHash,
+			&inviteCode.Status,
+			&inviteCode.ExpiresAt,
+			&inviteCode.UsageCount,
+			&inviteCode.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		inviteCodes = append(inviteCodes, inviteCode)
+	}
+
+	return inviteCodes, rows.Err()
+}
+
 func (s *Store) UpdateMember(ctx context.Context, id int64, nickname, status string) (domain.Member, error) {
 	now := time.Now().UTC()
 	result, err := s.db.ExecContext(ctx, `
@@ -339,13 +375,19 @@ func (s *Store) UpdateCategory(ctx context.Context, id int64, input domain.Creat
 	if input.Color == "" {
 		input.Color = "#64748b"
 	}
+	if input.Status == "" {
+		input.Status = "active"
+	}
+	if input.Status != "active" && input.Status != "disabled" {
+		return domain.Category{}, errors.New("invalid category status")
+	}
 
 	now := time.Now().UTC()
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE categories
-		SET name = ?, kind = ?, color = ?, sort_order = ?, updated_at = ?
+		SET name = ?, kind = ?, color = ?, sort_order = ?, status = ?, updated_at = ?
 		WHERE id = ?
-	`, input.Name, input.Kind, input.Color, input.SortOrder, now, id)
+	`, input.Name, input.Kind, input.Color, input.SortOrder, input.Status, now, id)
 	if err != nil {
 		return domain.Category{}, err
 	}
