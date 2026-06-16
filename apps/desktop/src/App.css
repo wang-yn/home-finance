@@ -169,6 +169,21 @@ select {
   gap: 14px;
 }
 
+.filter-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.filter-row label {
+  display: grid;
+  gap: 6px;
+  color: #40545c;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .button-row,
 .row-actions {
   display: flex;
@@ -245,6 +260,28 @@ select {
   gap: 4px;
 }
 
+.compact-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.analysis-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.breakdown-card {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.breakdown-card h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
 .admin-layout {
   display: grid;
   grid-template-columns: 240px minmax(0, 1fr);
@@ -311,6 +348,11 @@ select {
   }
 
   .inline-form {
+    grid-template-columns: 1fr;
+  }
+
+  .filter-row,
+  .analysis-grid {
     grid-template-columns: 1fr;
   }
 

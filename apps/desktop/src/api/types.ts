@@ -46,6 +46,16 @@ export type AnalyticsSummary = {
   householdId: number
   totalCents: number
   expenseCount: number
+  byCategory: AnalyticsBreakdown[]
+  byMember: AnalyticsBreakdown[]
+  recentExpenses: Expense[]
+}
+
+export type AnalyticsBreakdown = {
+  id: number
+  name: string
+  totalCents: number
+  expenseCount: number
 }
 
 export type MemberSession = {
@@ -108,4 +118,11 @@ export type CategoryInput = {
   kind: string
   color: string
   sortOrder: number
+  status?: string
+}
+
+export type ExpenseFilter = {
+  month?: string
+  categoryId?: number
+  memberId?: number
 }

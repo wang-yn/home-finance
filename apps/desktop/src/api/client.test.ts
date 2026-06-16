@@ -14,7 +14,9 @@ import {
   getMe,
   getMonthlyAnalytics,
   listAdminCategories,
+  listHouseholdMembers,
   listHouseholds,
+  listInviteCodes,
   listMembers,
   request,
   updateAdminCategory,
@@ -108,16 +110,19 @@ describe('device API helpers', () => {
   it('fetches categories, expenses, and monthly analytics for a month', async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ data: [{ id: 10, name: '餐饮' }] }))
+      .mockResolvedValueOnce(jsonResponse({ data: [{ id: 2, nickname: '小王' }] }))
       .mockResolvedValueOnce(jsonResponse({ data: [{ id: 20, amountCents: 1200 }] }))
       .mockResolvedValueOnce(jsonResponse({ data: { totalCents: 1200, expenseCount: 1 } }))
 
     await getCategories('http://localhost:8080', 'member-token')
-    await getExpenses('http://localhost:8080', 'member-token', '2026-06')
+    await listHouseholdMembers('http://localhost:8080', 'member-token', 1)
+    await getExpenses('http://localhost:8080', 'member-token', { month: '2026-06', categoryId: 10, memberId: 2 })
     const analytics = await getMonthlyAnalytics('http://localhost:8080', 'member-token', '2026-06')
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe('http://localhost:8080/api/categories')
-    expect(fetchMock.mock.calls[1]?.[0]).toBe('http://localhost:8080/api/expenses?month=2026-06')
-    expect(fetchMock.mock.calls[2]?.[0]).toBe('http://localhost:8080/api/analytics/monthly?month=2026-06')
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('http://localhost:8080/api/households/1/members')
+    expect(fetchMock.mock.calls[2]?.[0]).toBe('http://localhost:8080/api/expenses?month=2026-06&categoryId=10&memberId=2')
+    expect(fetchMock.mock.calls[3]?.[0]).toBe('http://localhost:8080/api/analytics/monthly?month=2026-06')
     expect(analytics.expenseCount).toBe(1)
   })
 
@@ -182,6 +187,7 @@ describe('admin API helpers', () => {
       .mockResolvedValueOnce(jsonResponse({ data: { id: 1, name: 'New Home' } }))
       .mockResolvedValueOnce(jsonResponse({ data: { id: 2, code: 'abc' } }, { status: 201 }))
       .mockResolvedValueOnce(jsonResponse({ data: { id: 2, status: 'disabled' } }))
+      .mockResolvedValueOnce(jsonResponse({ data: [{ id: 2, status: 'disabled' }] }))
       .mockResolvedValueOnce(jsonResponse({ data: { id: 3, nickname: '小王', status: 'disabled' } }))
       .mockResolvedValueOnce(jsonResponse({ data: { id: 4, name: '餐饮' } }, { status: 201 }))
       .mockResolvedValueOnce(jsonResponse({ data: { id: 4, name: '晚餐' } }))
@@ -190,6 +196,7 @@ describe('admin API helpers', () => {
     await updateHousehold('http://localhost:8080', 'admin-token', 1, 'New Home')
     await createInviteCode('http://localhost:8080', 'admin-token', 1, 7)
     await disableInviteCode('http://localhost:8080', 'admin-token', 2)
+    await listInviteCodes('http://localhost:8080', 'admin-token', 1)
     await updateMember('http://localhost:8080', 'admin-token', 3, { nickname: '小王', status: 'disabled' })
     await createAdminCategory('http://localhost:8080', 'admin-token', 1, {
       name: '餐饮',
@@ -202,6 +209,7 @@ describe('admin API helpers', () => {
       kind: 'expense',
       color: '#dc2626',
       sortOrder: 20,
+      status: 'disabled',
     })
 
     expect(requestInit(0).method).toBe('POST')
@@ -209,12 +217,14 @@ describe('admin API helpers', () => {
     expect(fetchMock.mock.calls[1]?.[0]).toBe('http://localhost:8080/admin/households/1')
     expect(JSON.parse(requestInit(2).body as string)).toEqual({ ttlDays: 7 })
     expect(JSON.parse(requestInit(3).body as string)).toEqual({ status: 'disabled' })
-    expect(JSON.parse(requestInit(4).body as string)).toEqual({ nickname: '小王', status: 'disabled' })
-    expect(JSON.parse(requestInit(6).body as string)).toEqual({
+    expect(fetchMock.mock.calls[4]?.[0]).toBe('http://localhost:8080/admin/households/1/invite-codes')
+    expect(JSON.parse(requestInit(5).body as string)).toEqual({ nickname: '小王', status: 'disabled' })
+    expect(JSON.parse(requestInit(7).body as string)).toEqual({
       name: '晚餐',
       kind: 'expense',
       color: '#dc2626',
       sortOrder: 20,
+      status: 'disabled',
     })
   })
 

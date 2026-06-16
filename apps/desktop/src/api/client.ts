@@ -7,6 +7,7 @@ import type {
   CategoryInput,
   DeleteExpenseResult,
   Expense,
+  ExpenseFilter,
   ExpenseInput,
   Household,
   InviteCode,
@@ -118,6 +119,13 @@ export async function disableInviteCode(baseUrl: string, token: string, inviteCo
   return payload.data
 }
 
+export async function listInviteCodes(baseUrl: string, token: string, householdID: number) {
+  const payload = await request<ApiEnvelope<InviteCode[]>>(baseUrl, `/admin/households/${householdID}/invite-codes`, {
+    token,
+  })
+  return payload.data
+}
+
 export async function listMembers(baseUrl: string, token: string, householdID: number) {
   const payload = await request<ApiEnvelope<Member[]>>(baseUrl, `/admin/households/${householdID}/members`, { token })
   return payload.data
@@ -193,8 +201,13 @@ export async function getCategories(baseUrl: string, token: string) {
   return payload.data
 }
 
-export async function getExpenses(baseUrl: string, token: string, month?: string) {
-  const payload = await request<ApiEnvelope<Expense[]>>(baseUrl, `/api/expenses${monthQuery(month)}`, { token })
+export async function listHouseholdMembers(baseUrl: string, token: string, householdID: number) {
+  const payload = await request<ApiEnvelope<Member[]>>(baseUrl, `/api/households/${householdID}/members`, { token })
+  return payload.data
+}
+
+export async function getExpenses(baseUrl: string, token: string, filter: ExpenseFilter | string = {}) {
+  const payload = await request<ApiEnvelope<Expense[]>>(baseUrl, `/api/expenses${expenseFilterQuery(filter)}`, { token })
   return payload.data
 }
 
@@ -251,4 +264,20 @@ function monthQuery(month?: string) {
     return ''
   }
   return `?month=${encodeURIComponent(month)}`
+}
+
+function expenseFilterQuery(filter: ExpenseFilter | string) {
+  const normalized = typeof filter === 'string' ? { month: filter } : filter
+  const params = new URLSearchParams()
+  if (normalized.month) {
+    params.set('month', normalized.month)
+  }
+  if (normalized.categoryId) {
+    params.set('categoryId', String(normalized.categoryId))
+  }
+  if (normalized.memberId) {
+    params.set('memberId', String(normalized.memberId))
+  }
+  const query = params.toString()
+  return query ? `?${query}` : ''
 }

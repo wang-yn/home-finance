@@ -8,10 +8,12 @@ import {
   disableInviteCode,
   exportExpensesCsv,
   getAdminStatus,
+  listInviteCodes,
   listAdminCategories,
   listHouseholds,
   listMembers,
   updateHousehold,
+  updateAdminCategory,
   updateMember,
 } from '../api/client'
 import type { AdminStatus, Category, CategoryInput, Household, InviteCode, Member } from '../api/types'
@@ -25,6 +27,7 @@ const emptyCategoryForm: CategoryInput = {
   kind: 'expense',
   color: '#64748b',
   sortOrder: 90,
+  status: 'active',
 }
 
 export function AdminApp() {
@@ -67,17 +70,19 @@ export function AdminApp() {
         listHouseholds(serviceUrl, token),
       ])
       const nextSelectedID = householdID || nextHouseholds[0]?.id || null
-      const [nextMembers, nextCategories] = nextSelectedID
+      const [nextMembers, nextCategories, nextInviteCodes] = nextSelectedID
         ? await Promise.all([
             listMembers(serviceUrl, token, nextSelectedID),
             listAdminCategories(serviceUrl, token, nextSelectedID),
+            listInviteCodes(serviceUrl, token, nextSelectedID),
           ])
-        : [[], []]
+        : [[], [], []]
       setStatus(nextStatus)
       setHouseholds(nextHouseholds)
       setSelectedHouseholdID(nextSelectedID)
       setMembers(nextMembers)
       setCategories(nextCategories)
+      setInviteCodes(nextInviteCodes)
     } catch (nextError) {
       handleError(nextError)
     } finally {
@@ -90,12 +95,14 @@ export function AdminApp() {
     setCategories([])
     setInviteCodes([])
     setSelectedHouseholdID(householdID)
-    const [nextMembers, nextCategories] = await Promise.all([
+    const [nextMembers, nextCategories, nextInviteCodes] = await Promise.all([
       listMembers(serviceUrl, token, householdID),
       listAdminCategories(serviceUrl, token, householdID),
+      listInviteCodes(serviceUrl, token, householdID),
     ])
     setMembers(nextMembers)
     setCategories(nextCategories)
+    setInviteCodes(nextInviteCodes)
   }, [serviceUrl])
 
   useEffect(() => {
@@ -130,6 +137,7 @@ export function AdminApp() {
     setHouseholds([])
     setMembers([])
     setCategories([])
+    setInviteCodes([])
   }
 
   async function submitHousehold(event: FormEvent<HTMLFormElement>) {
@@ -196,9 +204,9 @@ export function AdminApp() {
     setLoading(true)
     setError('')
     try {
-      const invite = await createInviteCode(serviceUrl, adminToken, selectedHouseholdID, Number(inviteDays) || 7)
-      setInviteCodes((current) => [invite, ...current])
+      await createInviteCode(serviceUrl, adminToken, selectedHouseholdID, Number(inviteDays) || 7)
       setMessage('邀请码已创建')
+      await loadHouseholdScope(adminToken, selectedHouseholdID)
     } catch (nextError) {
       handleError(nextError)
     } finally {
@@ -214,10 +222,10 @@ export function AdminApp() {
     setError('')
     try {
       await disableInviteCode(serviceUrl, adminToken, inviteID)
-      setInviteCodes((current) =>
-        current.map((invite) => (invite.id === inviteID ? { ...invite, status: 'disabled' } : invite)),
-      )
       setMessage('邀请码已停用')
+      if (selectedHouseholdID) {
+        await loadHouseholdScope(adminToken, selectedHouseholdID)
+      }
     } catch (nextError) {
       handleError(nextError)
     } finally {
@@ -243,6 +251,27 @@ export function AdminApp() {
     }
   }
 
+  async function renameMember(member: Member) {
+    if (!adminToken) {
+      return
+    }
+    const nickname = window.prompt('成员昵称', member.nickname)
+    if (!nickname?.trim()) {
+      return
+    }
+    setLoading(true)
+    setError('')
+    try {
+      await updateMember(serviceUrl, adminToken, member.id, { nickname: nickname.trim(), status: member.status })
+      setMessage('成员已重命名')
+      await refreshAdmin(adminToken, member.householdId)
+    } catch (nextError) {
+      handleError(nextError)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   async function submitCategory(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!adminToken || !selectedHouseholdID || !categoryForm.name.trim()) {
@@ -255,6 +284,60 @@ export function AdminApp() {
       setCategoryForm(emptyCategoryForm)
       setMessage('分类已创建')
       await refreshAdmin(adminToken, selectedHouseholdID)
+    } catch (nextError) {
+      handleError(nextError)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function editCategory(category: Category) {
+    if (!adminToken) {
+      return
+    }
+    const name = window.prompt('分类名称', category.name)
+    if (!name?.trim()) {
+      return
+    }
+    const color = window.prompt('分类颜色', category.color)
+    if (!color?.trim()) {
+      return
+    }
+    setLoading(true)
+    setError('')
+    try {
+      await updateAdminCategory(serviceUrl, adminToken, category.id, {
+        name: name.trim(),
+        kind: category.kind,
+        color: color.trim(),
+        sortOrder: category.sortOrder,
+        status: category.status,
+      })
+      setMessage('分类已更新')
+      await refreshAdmin(adminToken, category.householdId)
+    } catch (nextError) {
+      handleError(nextError)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function disableCategory(category: Category) {
+    if (!adminToken) {
+      return
+    }
+    setLoading(true)
+    setError('')
+    try {
+      await updateAdminCategory(serviceUrl, adminToken, category.id, {
+        name: category.name,
+        kind: category.kind,
+        color: category.color,
+        sortOrder: category.sortOrder,
+        status: 'disabled',
+      })
+      setMessage('分类已停用')
+      await refreshAdmin(adminToken, category.householdId)
     } catch (nextError) {
       handleError(nextError)
     } finally {
@@ -377,7 +460,7 @@ export function AdminApp() {
                 </label>
                 <button type="submit" disabled={loading || !selectedHouseholdID}>生成</button>
               </form>
-              <ListEmpty show={inviteCodes.length === 0} text="本页面只显示本次生成的邀请码" />
+              <ListEmpty show={inviteCodes.length === 0} text="当前家庭还没有邀请码" />
               <div className="expense-list">
                 {inviteCodes.map((invite) => (
                   <article className="expense-row" key={invite.id}>
@@ -385,7 +468,9 @@ export function AdminApp() {
                       <strong>{invite.code || `#${invite.id}`}</strong>
                       <span>{invite.status} · 使用 {invite.usageCount} 次</span>
                     </div>
-                    <button type="button" className="secondary" onClick={() => disableInvite(invite.id)}>停用</button>
+                    {invite.status === 'active' && (
+                      <button type="button" className="secondary" onClick={() => disableInvite(invite.id)}>停用</button>
+                    )}
                   </article>
                 ))}
               </div>
@@ -403,9 +488,12 @@ export function AdminApp() {
                       <strong>{member.nickname}</strong>
                       <span>{member.status}</span>
                     </div>
-                    <button type="button" className="secondary" onClick={() => toggleMember(member)}>
-                      {member.status === 'active' ? '停用' : '启用'}
-                    </button>
+                    <div className="row-actions">
+                      <button type="button" className="secondary" onClick={() => renameMember(member)}>重命名</button>
+                      <button type="button" className="secondary" onClick={() => toggleMember(member)}>
+                        {member.status === 'active' ? '停用' : '启用'}
+                      </button>
+                    </div>
                   </article>
                 ))}
               </div>
@@ -438,6 +526,12 @@ export function AdminApp() {
                     <div>
                       <strong>{category.name}</strong>
                       <span>{category.status} · {category.color}</span>
+                    </div>
+                    <div className="row-actions">
+                      <button type="button" className="secondary" onClick={() => editCategory(category)}>编辑</button>
+                      {category.status === 'active' && (
+                        <button type="button" className="secondary" onClick={() => disableCategory(category)}>停用</button>
+                      )}
                     </div>
                   </article>
                 ))}

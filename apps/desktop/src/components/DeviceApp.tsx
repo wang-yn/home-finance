@@ -10,9 +10,10 @@ import {
   getMonthlyAnalytics,
   health,
   joinHousehold,
+  listHouseholdMembers,
   updateExpense,
 } from '../api/client'
-import type { AnalyticsSummary, Category, Expense, ExpenseInput, MemberSession } from '../api/types'
+import type { AnalyticsSummary, Category, Expense, ExpenseInput, Member, MemberSession } from '../api/types'
 import {
   clearMemberToken,
   loadMemberToken,
@@ -49,9 +50,12 @@ export function DeviceApp() {
   const [view, setView] = useState<View>(token ? 'overview' : 'connect')
   const [session, setSession] = useState<MemberSession | null>(null)
   const [categories, setCategories] = useState<Category[]>([])
+  const [members, setMembers] = useState<Member[]>([])
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null)
   const [month, setMonth] = useState(formatMonth(new Date()))
+  const [categoryFilter, setCategoryFilter] = useState('')
+  const [memberFilter, setMemberFilter] = useState('')
   const [inviteCode, setInviteCode] = useState('')
   const [nickname, setNickname] = useState('')
   const [expenseForm, setExpenseForm] = useState<ExpenseForm>(() => createInitialExpenseForm())
@@ -61,11 +65,13 @@ export function DeviceApp() {
   const [loading, setLoading] = useState(false)
 
   const categoryByID = useMemo(() => new Map(categories.map((category) => [category.id, category])), [categories])
+  const memberByID = useMemo(() => new Map(members.map((member) => [member.id, member])), [members])
 
   const logout = useCallback(() => {
     clearMemberToken()
     setToken(null)
     setSession(null)
+    setMembers([])
     setExpenses([])
     setAnalytics(null)
     setView('connect')
@@ -82,14 +88,21 @@ export function DeviceApp() {
     setLoading(true)
     setError('')
     try {
-      const [nextSession, nextCategories, nextExpenses, nextAnalytics] = await Promise.all([
-        getMe(activeServiceUrl, currentToken),
+      const nextSession = await getMe(activeServiceUrl, currentToken)
+      const filter = {
+        month,
+        categoryId: Number(categoryFilter) || undefined,
+        memberId: Number(memberFilter) || undefined,
+      }
+      const [nextCategories, nextMembers, nextExpenses, nextAnalytics] = await Promise.all([
         getCategories(activeServiceUrl, currentToken),
-        getExpenses(activeServiceUrl, currentToken, month),
+        listHouseholdMembers(activeServiceUrl, currentToken, nextSession.household.id),
+        getExpenses(activeServiceUrl, currentToken, filter),
         getMonthlyAnalytics(activeServiceUrl, currentToken, month),
       ])
       setSession(nextSession)
       setCategories(nextCategories)
+      setMembers(nextMembers)
       setExpenses(nextExpenses)
       setAnalytics(nextAnalytics)
     } catch (nextError) {
@@ -100,7 +113,7 @@ export function DeviceApp() {
     } finally {
       setLoading(false)
     }
-  }, [activeServiceUrl, handleError, logout, month, token])
+  }, [activeServiceUrl, categoryFilter, handleError, logout, memberFilter, month, token])
 
   useEffect(() => {
     if (!token) {
@@ -309,8 +322,15 @@ export function DeviceApp() {
             <ExpenseList
               categoryByID={categoryByID}
               expenses={expenses}
+              memberByID={memberByID}
+              members={members}
+              categoryFilter={categoryFilter}
+              categories={categories}
+              memberFilter={memberFilter}
               onDelete={removeExpense}
               onEdit={editExpense}
+              onCategoryFilter={setCategoryFilter}
+              onMemberFilter={setMemberFilter}
             />
           </section>
         )}
@@ -333,6 +353,11 @@ export function DeviceApp() {
                 <p>已同步记录</p>
               </article>
             </div>
+            <AnalysisBreakdown
+              analytics={analytics}
+              categoryByID={categoryByID}
+              memberByID={memberByID}
+            />
           </section>
         )}
 
@@ -422,20 +447,54 @@ function ExpenseFormPanel({
 
 function ExpenseList({
   categoryByID,
+  categories,
+  categoryFilter,
   expenses,
+  memberByID,
+  memberFilter,
+  members,
+  onCategoryFilter,
   onDelete,
   onEdit,
+  onMemberFilter,
 }: {
   categoryByID: Map<number, Category>
+  categories: Category[]
+  categoryFilter: string
   expenses: Expense[]
+  memberByID: Map<number, Member>
+  memberFilter: string
+  members: Member[]
+  onCategoryFilter: (value: string) => void
   onDelete: (expenseID: number) => void
   onEdit: (expense: Expense) => void
+  onMemberFilter: (value: string) => void
 }) {
   return (
     <section className="panel">
       <div className="panel-header">
         <h2>支出列表</h2>
         <span>{expenses.length} 笔</span>
+      </div>
+      <div className="filter-row">
+        <label>
+          <span>分类</span>
+          <select value={categoryFilter} onChange={(event) => onCategoryFilter(event.target.value)}>
+            <option value="">全部分类</option>
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>{category.name}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>成员</span>
+          <select value={memberFilter} onChange={(event) => onMemberFilter(event.target.value)}>
+            <option value="">全部成员</option>
+            {members.map((member) => (
+              <option key={member.id} value={member.id}>{member.nickname}</option>
+            ))}
+          </select>
+        </label>
       </div>
       {expenses.length === 0 ? (
         <p className="empty-state">当前月份还没有支出记录</p>
@@ -445,13 +504,83 @@ function ExpenseList({
             <article className="expense-row" key={expense.id}>
               <div>
                 <strong>{expense.note || categoryByID.get(expense.categoryId)?.name || '未命名支出'}</strong>
-                <span>{categoryByID.get(expense.categoryId)?.name || '分类'} · {new Date(expense.spentAt).toLocaleDateString()}</span>
+                <span>
+                  {categoryByID.get(expense.categoryId)?.name || '分类'} · {memberByID.get(expense.memberId)?.nickname || '成员'} ·{' '}
+                  {new Date(expense.spentAt).toLocaleDateString()}
+                </span>
               </div>
               <b>{formatCents(expense.amountCents, expense.currency)}</b>
               <div className="row-actions">
                 <button type="button" className="secondary" onClick={() => onEdit(expense)}>编辑</button>
                 <button type="button" className="danger" onClick={() => onDelete(expense.id)}>删除</button>
               </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function AnalysisBreakdown({
+  analytics,
+  categoryByID,
+  memberByID,
+}: {
+  analytics: AnalyticsSummary | null
+  categoryByID: Map<number, Category>
+  memberByID: Map<number, Member>
+}) {
+  return (
+    <div className="analysis-grid">
+      <BreakdownList title="分类分布" items={analytics?.byCategory || []} />
+      <BreakdownList title="成员分布" items={analytics?.byMember || []} />
+      <section className="breakdown-card">
+        <h3>最近支出</h3>
+        {(analytics?.recentExpenses || []).length === 0 ? (
+          <p className="empty-state">暂无最近支出</p>
+        ) : (
+          <div className="expense-list">
+            {(analytics?.recentExpenses || []).map((expense) => (
+              <article className="expense-row compact-row" key={expense.id}>
+                <div>
+                  <strong>{expense.note || categoryByID.get(expense.categoryId)?.name || '未命名支出'}</strong>
+                  <span>
+                    {memberByID.get(expense.memberId)?.nickname || '成员'} ·{' '}
+                    {new Date(expense.spentAt).toLocaleDateString()}
+                  </span>
+                </div>
+                <b>{formatCents(expense.amountCents, expense.currency)}</b>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  )
+}
+
+function BreakdownList({
+  title,
+  items,
+}: {
+  title: string
+  items: AnalyticsSummary['byCategory']
+}) {
+  return (
+    <section className="breakdown-card">
+      <h3>{title}</h3>
+      {items.length === 0 ? (
+        <p className="empty-state">暂无数据</p>
+      ) : (
+        <div className="expense-list">
+          {items.map((item) => (
+            <article className="expense-row compact-row" key={item.id}>
+              <div>
+                <strong>{item.name}</strong>
+                <span>{item.expenseCount} 笔</span>
+              </div>
+              <b>{formatCents(item.totalCents)}</b>
             </article>
           ))}
         </div>
