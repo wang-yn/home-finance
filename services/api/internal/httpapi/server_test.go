@@ -345,6 +345,10 @@ func TestMemberSessionRejectsMissingInvalidDisabledAndInactive(t *testing.T) {
 	if disableMemberResponse.Code != http.StatusOK {
 		t.Fatalf("expected disable member 200, got %d: %s", disableMemberResponse.Code, disableMemberResponse.Body.String())
 	}
+	invalidMemberStatusResponse := adminJSONRequest(t, server, adminToken, http.MethodPatch, "/admin/members/"+strconv.FormatInt(joinPayload.MemberID, 10), `{"nickname":"小王","status":"archived"}`)
+	if invalidMemberStatusResponse.Code != http.StatusBadRequest {
+		t.Fatalf("invalid member status expected 400, got %d: %s", invalidMemberStatusResponse.Code, invalidMemberStatusResponse.Body.String())
+	}
 	disabledMemberResponse := memberGET(server, "/api/me", joinPayload.Token)
 	if disabledMemberResponse.Code != http.StatusUnauthorized {
 		t.Fatalf("disabled member token expected 401, got %d: %s", disabledMemberResponse.Code, disabledMemberResponse.Body.String())

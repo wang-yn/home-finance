@@ -322,6 +322,10 @@ func (s *Server) adminUpdateMember(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid member payload"})
 		return
 	}
+	if input.Status != "active" && input.Status != "disabled" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid member status"})
+		return
+	}
 
 	member, err := s.store.UpdateMember(c.Request.Context(), memberID, input.Nickname, input.Status)
 	if err != nil {
