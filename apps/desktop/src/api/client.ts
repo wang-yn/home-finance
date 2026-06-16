@@ -16,13 +16,17 @@ export class ApiError extends Error {
 
 export async function request<T>(baseUrl: string, path: string, options: RequestOptions = {}) {
   const { headers, token, ...init } = options
+  const requestHeaders = new Headers(headers)
+  if (init.body && !requestHeaders.has('Content-Type')) {
+    requestHeaders.set('Content-Type', 'application/json')
+  }
+  if (token) {
+    requestHeaders.set('Authorization', `Bearer ${token}`)
+  }
+
   const response = await fetch(`${trimTrailingSlash(baseUrl)}${path}`, {
     ...init,
-    headers: {
-      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...headers,
-    },
+    headers: requestHeaders,
   })
 
   if (!response.ok) {

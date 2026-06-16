@@ -64,7 +64,6 @@ export type JoinResult = {
 
 export type AdminLoginResult = {
   token: string
-  expiresAt: string
 }
 
 export type ApiEnvelope<T> = {
