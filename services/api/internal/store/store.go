@@ -43,6 +43,10 @@ func (s *Store) Health(ctx context.Context) error {
 }
 
 func (s *Store) ListMembers(ctx context.Context, householdID int64) ([]domain.Member, error) {
+	if _, err := s.householdByID(ctx, householdID); err != nil {
+		return nil, err
+	}
+
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, household_id, nickname, session_token_hash, status, last_active_at, created_at, updated_at
 		FROM members

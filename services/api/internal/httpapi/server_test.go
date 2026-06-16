@@ -171,6 +171,38 @@ func TestAdminCanManageHouseholdInviteMemberAndCategory(t *testing.T) {
 	}
 }
 
+func TestAdminMissingHouseholdCategoriesReturnsNotFound(t *testing.T) {
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close()
+
+	server := NewServer(db, Config{AdminPassword: "secret"})
+	token := loginAdmin(t, server)
+
+	response := adminJSONRequest(t, server, token, http.MethodGet, "/admin/households/999/categories", "")
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("expected missing household categories 404, got %d: %s", response.Code, response.Body.String())
+	}
+}
+
+func TestAdminMissingHouseholdMembersReturnsNotFound(t *testing.T) {
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close()
+
+	server := NewServer(db, Config{AdminPassword: "secret"})
+	token := loginAdmin(t, server)
+
+	response := adminJSONRequest(t, server, token, http.MethodGet, "/admin/households/999/members", "")
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("expected missing household members 404, got %d: %s", response.Code, response.Body.String())
+	}
+}
+
 func TestAdminLoginWrongPasswordIsThrottledAndSuccessResetsFailures(t *testing.T) {
 	db, err := store.Open(":memory:")
 	if err != nil {

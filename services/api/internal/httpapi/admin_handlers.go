@@ -227,7 +227,7 @@ func (s *Server) adminListMembers(c *gin.Context) {
 
 	members, err := s.store.ListMembers(c.Request.Context(), householdID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "list members"})
+		writeAdminStoreError(c, err, "list members")
 		return
 	}
 
@@ -266,7 +266,7 @@ func (s *Server) adminListCategories(c *gin.Context) {
 
 	categories, err := s.store.ListCategories(c.Request.Context(), householdID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "list categories"})
+		writeAdminStoreError(c, err, "list categories")
 		return
 	}
 
