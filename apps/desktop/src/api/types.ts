@@ -48,6 +48,11 @@ export type AnalyticsSummary = {
   expenseCount: number
 }
 
+export type MemberSession = {
+  household: Household
+  member: Member
+}
+
 export type AdminStatus = {
   serviceStatus: string
   dbPath: string
@@ -68,4 +73,17 @@ export type AdminLoginResult = {
 
 export type ApiEnvelope<T> = {
   data: T
+}
+
+export type ExpenseInput = {
+  categoryId: number
+  amountCents: number
+  currency: string
+  note: string
+  spentAt: string
+}
+
+export type DeleteExpenseResult = {
+  id: number
+  deleted: boolean
 }

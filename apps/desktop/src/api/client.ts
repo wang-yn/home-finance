@@ -1,4 +1,14 @@
-import type { AdminLoginResult, ApiEnvelope, JoinResult } from './types'
+import type {
+  AdminLoginResult,
+  AnalyticsSummary,
+  ApiEnvelope,
+  Category,
+  DeleteExpenseResult,
+  Expense,
+  ExpenseInput,
+  JoinResult,
+  MemberSession,
+} from './types'
 
 type RequestOptions = RequestInit & {
   token?: string
@@ -60,6 +70,56 @@ export async function joinHousehold(baseUrl: string, inviteCode: string, nicknam
   return payload.data
 }
 
+export async function getMe(baseUrl: string, token: string) {
+  const payload = await request<ApiEnvelope<MemberSession>>(baseUrl, '/api/me', { token })
+  return payload.data
+}
+
+export async function getCategories(baseUrl: string, token: string) {
+  const payload = await request<ApiEnvelope<Category[]>>(baseUrl, '/api/categories', { token })
+  return payload.data
+}
+
+export async function getExpenses(baseUrl: string, token: string, month?: string) {
+  const payload = await request<ApiEnvelope<Expense[]>>(baseUrl, `/api/expenses${monthQuery(month)}`, { token })
+  return payload.data
+}
+
+export async function createExpense(baseUrl: string, token: string, input: ExpenseInput) {
+  const payload = await request<ApiEnvelope<Expense>>(baseUrl, '/api/expenses', {
+    method: 'POST',
+    token,
+    body: JSON.stringify(input),
+  })
+  return payload.data
+}
+
+export async function updateExpense(baseUrl: string, token: string, expenseID: number, input: ExpenseInput) {
+  const payload = await request<ApiEnvelope<Expense>>(baseUrl, `/api/expenses/${expenseID}`, {
+    method: 'PATCH',
+    token,
+    body: JSON.stringify(input),
+  })
+  return payload.data
+}
+
+export async function deleteExpense(baseUrl: string, token: string, expenseID: number) {
+  const payload = await request<ApiEnvelope<DeleteExpenseResult>>(baseUrl, `/api/expenses/${expenseID}`, {
+    method: 'DELETE',
+    token,
+  })
+  return payload.data
+}
+
+export async function getMonthlyAnalytics(baseUrl: string, token: string, month: string) {
+  const payload = await request<ApiEnvelope<AnalyticsSummary>>(
+    baseUrl,
+    `/api/analytics/monthly${monthQuery(month)}`,
+    { token },
+  )
+  return payload.data
+}
+
 async function responseErrorMessage(response: Response) {
   try {
     const payload = (await response.json()) as { error?: string }
@@ -71,4 +131,11 @@ async function responseErrorMessage(response: Response) {
 
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, '')
+}
+
+function monthQuery(month?: string) {
+  if (!month) {
+    return ''
+  }
+  return `?month=${encodeURIComponent(month)}`
 }
