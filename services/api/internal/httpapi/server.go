@@ -3,6 +3,7 @@ package httpapi
 import (
 	"net/http"
 	"strconv"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 
@@ -11,9 +12,11 @@ import (
 )
 
 type Server struct {
-	router *gin.Engine
-	store  *store.Store
-	config Config
+	router             *gin.Engine
+	store              *store.Store
+	config             Config
+	adminLoginFailures map[string]int
+	adminLoginMu       sync.Mutex
 }
 
 type Config struct {
@@ -31,7 +34,12 @@ func NewServer(store *store.Store, configs ...Config) *Server {
 		config = configs[0]
 	}
 
-	server := &Server{router: router, store: store, config: config}
+	server := &Server{
+		router:             router,
+		store:              store,
+		config:             config,
+		adminLoginFailures: make(map[string]int),
+	}
 	server.routes()
 	return server
 }

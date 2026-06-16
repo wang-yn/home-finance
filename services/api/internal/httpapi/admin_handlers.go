@@ -11,6 +11,8 @@ import (
 	"home-finance/services/api/internal/store"
 )
 
+const adminLoginFailureLimit = 3
+
 func (s *Server) adminLogin(c *gin.Context) {
 	if s.config.AdminPassword == "" {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "admin password is not configured"})
@@ -24,10 +26,18 @@ func (s *Server) adminLogin(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid login payload"})
 		return
 	}
-	if subtle.ConstantTimeCompare([]byte(store.HashSecret(input.Password)), []byte(store.HashSecret(s.config.AdminPassword))) != 1 {
+	clientIP := c.ClientIP()
+	validPassword := subtle.ConstantTimeCompare([]byte(store.HashSecret(input.Password)), []byte(store.HashSecret(s.config.AdminPassword))) == 1
+	if !validPassword {
+		if s.recordAdminLoginFailure(clientIP) {
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "too many login attempts"})
+			return
+		}
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
+
+	s.resetAdminLoginFailures(clientIP)
 
 	token, err := store.GenerateToken()
 	if err != nil {
@@ -40,6 +50,21 @@ func (s *Server) adminLogin(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{"token": token}})
+}
+
+func (s *Server) recordAdminLoginFailure(clientIP string) bool {
+	s.adminLoginMu.Lock()
+	defer s.adminLoginMu.Unlock()
+
+	s.adminLoginFailures[clientIP]++
+	return s.adminLoginFailures[clientIP] > adminLoginFailureLimit
+}
+
+func (s *Server) resetAdminLoginFailures(clientIP string) {
+	s.adminLoginMu.Lock()
+	defer s.adminLoginMu.Unlock()
+
+	delete(s.adminLoginFailures, clientIP)
 }
 
 func (s *Server) adminStatus(c *gin.Context) {
