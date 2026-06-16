@@ -36,6 +36,17 @@ type InviteCodeWithPlaintext struct {
 	Code string `json:"code"`
 }
 
+type JoinResult struct {
+	Household Household `json:"household"`
+	Member    Member    `json:"member"`
+	Token     string    `json:"token"`
+}
+
+type MemberSession struct {
+	Household Household `json:"household"`
+	Member    Member    `json:"member"`
+}
+
 type Category struct {
 	ID          int64     `json:"id"`
 	HouseholdID int64     `json:"householdId"`

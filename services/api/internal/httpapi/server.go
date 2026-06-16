@@ -74,6 +74,11 @@ func (s *Server) routes() {
 	admin.POST("/households/:householdID/categories", s.adminCreateCategory)
 	admin.PATCH("/categories/:categoryID", s.adminUpdateCategory)
 
+	s.router.POST("/api/join", s.join)
+
+	protectedAPI := s.router.Group("/api", s.requireMember())
+	protectedAPI.GET("/me", s.me)
+
 	api := s.router.Group("/api")
 	api.GET("/households/:householdID/members", s.listMembers)
 	api.GET("/households/:householdID/expenses", s.listExpenses)

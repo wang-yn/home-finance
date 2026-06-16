@@ -171,6 +171,104 @@ func TestAdminCanManageHouseholdInviteMemberAndCategory(t *testing.T) {
 	}
 }
 
+func TestDeviceCanJoinHouseholdWithInviteCode(t *testing.T) {
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close()
+
+	server := NewServer(db, Config{AdminPassword: "secret"})
+	token := loginAdmin(t, server)
+
+	createHouseholdResponse := adminJSONRequest(t, server, token, http.MethodPost, "/admin/households", `{"name":"Home"}`)
+	if createHouseholdResponse.Code != http.StatusCreated {
+		t.Fatalf("expected create household 201, got %d: %s", createHouseholdResponse.Code, createHouseholdResponse.Body.String())
+	}
+	var createHouseholdPayload struct {
+		Data struct {
+			ID int64 `json:"id"`
+		} `json:"data"`
+	}
+	decodeJSON(t, createHouseholdResponse, &createHouseholdPayload)
+	householdID := createHouseholdPayload.Data.ID
+	if householdID == 0 {
+		t.Fatalf("expected household id, got %#v", createHouseholdPayload.Data)
+	}
+
+	createInviteCodeResponse := adminJSONRequest(t, server, token, http.MethodPost, "/admin/households/"+strconv.FormatInt(householdID, 10)+"/invite-codes", `{}`)
+	if createInviteCodeResponse.Code != http.StatusCreated {
+		t.Fatalf("expected create invite code 201, got %d: %s", createInviteCodeResponse.Code, createInviteCodeResponse.Body.String())
+	}
+	var createInviteCodePayload struct {
+		Data struct {
+			Code string `json:"code"`
+		} `json:"data"`
+	}
+	decodeJSON(t, createInviteCodeResponse, &createInviteCodePayload)
+	if createInviteCodePayload.Data.Code == "" {
+		t.Fatal("expected plaintext invite code")
+	}
+
+	joinRequest := httptest.NewRequest(http.MethodPost, "/api/join", strings.NewReader(`{"inviteCode":"`+createInviteCodePayload.Data.Code+`","nickname":"小王"}`))
+	joinRequest.Header.Set("Content-Type", "application/json")
+	joinResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(joinResponse, joinRequest)
+	if joinResponse.Code != http.StatusOK {
+		t.Fatalf("expected join 200, got %d: %s", joinResponse.Code, joinResponse.Body.String())
+	}
+	var joinPayload struct {
+		Data struct {
+			Household struct {
+				ID int64 `json:"id"`
+			} `json:"household"`
+			Member struct {
+				ID          int64  `json:"id"`
+				HouseholdID int64  `json:"householdId"`
+				Nickname    string `json:"nickname"`
+			} `json:"member"`
+			Token string `json:"token"`
+		} `json:"data"`
+	}
+	decodeJSON(t, joinResponse, &joinPayload)
+	if joinPayload.Data.Household.ID != householdID {
+		t.Fatalf("expected household id %d, got %#v", householdID, joinPayload.Data.Household)
+	}
+	if joinPayload.Data.Member.ID == 0 || joinPayload.Data.Member.HouseholdID != householdID || joinPayload.Data.Member.Nickname != "小王" {
+		t.Fatalf("unexpected member response: %#v", joinPayload.Data.Member)
+	}
+	if joinPayload.Data.Token == "" {
+		t.Fatal("expected non-empty member token")
+	}
+
+	meRequest := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	meRequest.Header.Set("Authorization", "Bearer "+joinPayload.Data.Token)
+	meResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(meResponse, meRequest)
+	if meResponse.Code != http.StatusOK {
+		t.Fatalf("expected me 200, got %d: %s", meResponse.Code, meResponse.Body.String())
+	}
+	var mePayload struct {
+		Data struct {
+			Household struct {
+				ID int64 `json:"id"`
+			} `json:"household"`
+			Member struct {
+				ID          int64  `json:"id"`
+				HouseholdID int64  `json:"householdId"`
+				Nickname    string `json:"nickname"`
+			} `json:"member"`
+		} `json:"data"`
+	}
+	decodeJSON(t, meResponse, &mePayload)
+	if mePayload.Data.Household.ID != householdID {
+		t.Fatalf("expected me household id %d, got %#v", householdID, mePayload.Data.Household)
+	}
+	if mePayload.Data.Member.ID != joinPayload.Data.Member.ID || mePayload.Data.Member.HouseholdID != householdID || mePayload.Data.Member.Nickname != "小王" {
+		t.Fatalf("unexpected me member response: %#v", mePayload.Data.Member)
+	}
+}
+
 func TestAdminMissingHouseholdCategoriesReturnsNotFound(t *testing.T) {
 	db, err := store.Open(":memory:")
 	if err != nil {
