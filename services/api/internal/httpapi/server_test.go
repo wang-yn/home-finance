@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -69,6 +70,104 @@ func TestAdminLoginAndStatus(t *testing.T) {
 
 	if statusResponse.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", statusResponse.Code, statusResponse.Body.String())
+	}
+}
+
+func TestAdminCanManageHouseholdInviteMemberAndCategory(t *testing.T) {
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close()
+
+	server := NewServer(db, Config{AdminPassword: "secret"})
+	token := loginAdmin(t, server)
+
+	createHouseholdResponse := adminJSONRequest(t, server, token, http.MethodPost, "/admin/households", `{"name":"Home"}`)
+	if createHouseholdResponse.Code != http.StatusCreated {
+		t.Fatalf("expected create household 201, got %d: %s", createHouseholdResponse.Code, createHouseholdResponse.Body.String())
+	}
+	var createHouseholdPayload struct {
+		Data struct {
+			ID   int64  `json:"id"`
+			Name string `json:"name"`
+		} `json:"data"`
+	}
+	decodeJSON(t, createHouseholdResponse, &createHouseholdPayload)
+	if createHouseholdPayload.Data.ID == 0 || createHouseholdPayload.Data.Name != "Home" {
+		t.Fatalf("unexpected household response: %#v", createHouseholdPayload.Data)
+	}
+	householdID := createHouseholdPayload.Data.ID
+
+	createInviteCodeResponse := adminJSONRequest(t, server, token, http.MethodPost, "/admin/households/"+strconv.FormatInt(householdID, 10)+"/invite-codes", `{}`)
+	if createInviteCodeResponse.Code != http.StatusCreated {
+		t.Fatalf("expected create invite code 201, got %d: %s", createInviteCodeResponse.Code, createInviteCodeResponse.Body.String())
+	}
+	var createInviteCodePayload struct {
+		Data struct {
+			ID   int64  `json:"id"`
+			Code string `json:"code"`
+		} `json:"data"`
+	}
+	decodeJSON(t, createInviteCodeResponse, &createInviteCodePayload)
+	if createInviteCodePayload.Data.ID == 0 || createInviteCodePayload.Data.Code == "" {
+		t.Fatalf("unexpected invite code response: %#v", createInviteCodePayload.Data)
+	}
+
+	listHouseholdsResponse := adminJSONRequest(t, server, token, http.MethodGet, "/admin/households", "")
+	if listHouseholdsResponse.Code != http.StatusOK {
+		t.Fatalf("expected list households 200, got %d: %s", listHouseholdsResponse.Code, listHouseholdsResponse.Body.String())
+	}
+	var listHouseholdsPayload struct {
+		Data []struct {
+			ID   int64  `json:"id"`
+			Name string `json:"name"`
+		} `json:"data"`
+	}
+	decodeJSON(t, listHouseholdsResponse, &listHouseholdsPayload)
+	if len(listHouseholdsPayload.Data) != 1 || listHouseholdsPayload.Data[0].ID != householdID || listHouseholdsPayload.Data[0].Name != "Home" {
+		t.Fatalf("unexpected households response: %#v", listHouseholdsPayload.Data)
+	}
+
+	createCategoryResponse := adminJSONRequest(t, server, token, http.MethodPost, "/admin/households/"+strconv.FormatInt(householdID, 10)+"/categories", `{"name":"Coffee","color":"#7c2d12","sortOrder":10}`)
+	if createCategoryResponse.Code != http.StatusCreated {
+		t.Fatalf("expected create category 201, got %d: %s", createCategoryResponse.Code, createCategoryResponse.Body.String())
+	}
+	var createCategoryPayload struct {
+		Data struct {
+			ID        int64  `json:"id"`
+			Name      string `json:"name"`
+			Color     string `json:"color"`
+			SortOrder int    `json:"sortOrder"`
+		} `json:"data"`
+	}
+	decodeJSON(t, createCategoryResponse, &createCategoryPayload)
+	if createCategoryPayload.Data.ID == 0 || createCategoryPayload.Data.Name != "Coffee" || createCategoryPayload.Data.Color != "#7c2d12" || createCategoryPayload.Data.SortOrder != 10 {
+		t.Fatalf("unexpected category response: %#v", createCategoryPayload.Data)
+	}
+
+	listCategoriesResponse := adminJSONRequest(t, server, token, http.MethodGet, "/admin/households/"+strconv.FormatInt(householdID, 10)+"/categories", "")
+	if listCategoriesResponse.Code != http.StatusOK {
+		t.Fatalf("expected list categories 200, got %d: %s", listCategoriesResponse.Code, listCategoriesResponse.Body.String())
+	}
+	var listCategoriesPayload struct {
+		Data []struct {
+			Name string `json:"name"`
+		} `json:"data"`
+	}
+	decodeJSON(t, listCategoriesResponse, &listCategoriesPayload)
+	if len(listCategoriesPayload.Data) != 9 {
+		t.Fatalf("expected default categories plus Coffee, got %#v", listCategoriesPayload.Data)
+	}
+	foundCoffee := false
+	for _, category := range listCategoriesPayload.Data {
+		if category.Name == "Coffee" {
+			foundCoffee = true
+			break
+		}
+	}
+	if !foundCoffee {
+		t.Fatalf("expected Coffee in categories, got %#v", listCategoriesPayload.Data)
 	}
 }
 
@@ -222,4 +321,54 @@ func postAdminLogin(server *Server, password string) *httptest.ResponseRecorder 
 	server.Handler().ServeHTTP(response, request)
 
 	return response
+}
+
+func loginAdmin(t *testing.T, server *Server) string {
+	t.Helper()
+
+	loginResponse := postAdminLogin(server, "secret")
+	if loginResponse.Code != http.StatusOK {
+		t.Fatalf("expected login 200, got %d: %s", loginResponse.Code, loginResponse.Body.String())
+	}
+
+	var loginPayload struct {
+		Data struct {
+			Token string `json:"token"`
+		} `json:"data"`
+	}
+	decodeJSON(t, loginResponse, &loginPayload)
+	if loginPayload.Data.Token == "" {
+		t.Fatal("expected non-empty admin token")
+	}
+
+	return loginPayload.Data.Token
+}
+
+func adminJSONRequest(t *testing.T, server *Server, token, method, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	var reader *strings.Reader
+	if body == "" {
+		reader = strings.NewReader("")
+	} else {
+		reader = strings.NewReader(body)
+	}
+	request := httptest.NewRequest(method, path, reader)
+	request.Header.Set("Authorization", "Bearer "+token)
+	if body != "" {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	response := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(response, request)
+
+	return response
+}
+
+func decodeJSON(t *testing.T, response *httptest.ResponseRecorder, target any) {
+	t.Helper()
+
+	if err := json.NewDecoder(response.Body).Decode(target); err != nil {
+		t.Fatalf("decode response: %v; body=%s", err, response.Body.String())
+	}
 }

@@ -63,6 +63,16 @@ func (s *Server) routes() {
 
 	admin := s.router.Group("/admin", s.requireAdmin())
 	admin.GET("/status", s.adminStatus)
+	admin.GET("/households", s.adminListHouseholds)
+	admin.POST("/households", s.adminCreateHousehold)
+	admin.PATCH("/households/:householdID", s.adminUpdateHousehold)
+	admin.POST("/households/:householdID/invite-codes", s.adminCreateInviteCode)
+	admin.PATCH("/invite-codes/:inviteCodeID", s.adminDisableInviteCode)
+	admin.GET("/households/:householdID/members", s.adminListMembers)
+	admin.PATCH("/members/:memberID", s.adminUpdateMember)
+	admin.GET("/households/:householdID/categories", s.adminListCategories)
+	admin.POST("/households/:householdID/categories", s.adminCreateCategory)
+	admin.PATCH("/categories/:categoryID", s.adminUpdateCategory)
 
 	api := s.router.Group("/api")
 	api.GET("/households/:householdID/members", s.listMembers)

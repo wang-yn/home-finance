@@ -2,12 +2,15 @@ package httpapi
 
 import (
 	"crypto/subtle"
+	"database/sql"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"home-finance/services/api/internal/domain"
 	"home-finance/services/api/internal/store"
 )
 
@@ -109,6 +112,237 @@ func (s *Server) adminStatus(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": status})
+}
+
+func (s *Server) adminListHouseholds(c *gin.Context) {
+	households, err := s.store.ListHouseholds(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "list households"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": households})
+}
+
+func (s *Server) adminCreateHousehold(c *gin.Context) {
+	var input struct {
+		Name string `json:"name" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid household payload"})
+		return
+	}
+
+	household, err := s.store.CreateHousehold(c.Request.Context(), input.Name)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "create household"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"data": household})
+}
+
+func (s *Server) adminUpdateHousehold(c *gin.Context) {
+	householdID, ok := parseIDParam(c, "householdID")
+	if !ok {
+		return
+	}
+
+	var input struct {
+		Name string `json:"name" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid household payload"})
+		return
+	}
+
+	household, err := s.store.UpdateHousehold(c.Request.Context(), householdID, input.Name)
+	if err != nil {
+		writeAdminStoreError(c, err, "update household")
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": household})
+}
+
+func (s *Server) adminCreateInviteCode(c *gin.Context) {
+	householdID, ok := parseIDParam(c, "householdID")
+	if !ok {
+		return
+	}
+
+	var input struct {
+		TTLDays int `json:"ttlDays"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid invite code payload"})
+		return
+	}
+
+	var ttl time.Duration
+	if input.TTLDays > 0 {
+		ttl = time.Duration(input.TTLDays) * 24 * time.Hour
+	}
+
+	inviteCode, err := s.store.CreateInviteCode(c.Request.Context(), householdID, ttl)
+	if err != nil {
+		writeAdminStoreError(c, err, "create invite code")
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"data": inviteCode})
+}
+
+func (s *Server) adminDisableInviteCode(c *gin.Context) {
+	inviteCodeID, ok := parseIDParam(c, "inviteCodeID")
+	if !ok {
+		return
+	}
+
+	var input struct {
+		Status string `json:"status"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid invite code payload"})
+		return
+	}
+	if input.Status != "" && input.Status != "disabled" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid invite code status"})
+		return
+	}
+
+	if err := s.store.DisableInviteCode(c.Request.Context(), inviteCodeID); err != nil {
+		writeAdminStoreError(c, err, "disable invite code")
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": gin.H{"id": inviteCodeID, "status": "disabled"}})
+}
+
+func (s *Server) adminListMembers(c *gin.Context) {
+	householdID, ok := parseIDParam(c, "householdID")
+	if !ok {
+		return
+	}
+
+	members, err := s.store.ListMembers(c.Request.Context(), householdID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "list members"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": members})
+}
+
+func (s *Server) adminUpdateMember(c *gin.Context) {
+	memberID, ok := parseIDParam(c, "memberID")
+	if !ok {
+		return
+	}
+
+	var input struct {
+		Nickname string `json:"nickname" binding:"required"`
+		Status   string `json:"status" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid member payload"})
+		return
+	}
+
+	member, err := s.store.UpdateMember(c.Request.Context(), memberID, input.Nickname, input.Status)
+	if err != nil {
+		writeAdminStoreError(c, err, "update member")
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": member})
+}
+
+func (s *Server) adminListCategories(c *gin.Context) {
+	householdID, ok := parseIDParam(c, "householdID")
+	if !ok {
+		return
+	}
+
+	categories, err := s.store.ListCategories(c.Request.Context(), householdID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "list categories"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": categories})
+}
+
+func (s *Server) adminCreateCategory(c *gin.Context) {
+	householdID, ok := parseIDParam(c, "householdID")
+	if !ok {
+		return
+	}
+
+	var input struct {
+		Name      string `json:"name" binding:"required"`
+		Kind      string `json:"kind"`
+		Color     string `json:"color"`
+		SortOrder int    `json:"sortOrder"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid category payload"})
+		return
+	}
+
+	category, err := s.store.CreateCategory(c.Request.Context(), householdID, domain.CreateCategoryInput{
+		HouseholdID: householdID,
+		Name:        input.Name,
+		Kind:        input.Kind,
+		Color:       input.Color,
+		SortOrder:   input.SortOrder,
+	})
+	if err != nil {
+		writeAdminStoreError(c, err, "create category")
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"data": category})
+}
+
+func (s *Server) adminUpdateCategory(c *gin.Context) {
+	categoryID, ok := parseIDParam(c, "categoryID")
+	if !ok {
+		return
+	}
+
+	var input struct {
+		Name      string `json:"name" binding:"required"`
+		Kind      string `json:"kind"`
+		Color     string `json:"color"`
+		SortOrder int    `json:"sortOrder"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid category payload"})
+		return
+	}
+
+	category, err := s.store.UpdateCategory(c.Request.Context(), categoryID, domain.CreateCategoryInput{
+		Name:      input.Name,
+		Kind:      input.Kind,
+		Color:     input.Color,
+		SortOrder: input.SortOrder,
+	})
+	if err != nil {
+		writeAdminStoreError(c, err, "update category")
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": category})
+}
+
+func writeAdminStoreError(c *gin.Context, err error, message string) {
+	if errors.Is(err, sql.ErrNoRows) {
+		c.JSON(http.StatusNotFound, gin.H{"error": message})
+		return
+	}
+
+	c.JSON(http.StatusInternalServerError, gin.H{"error": message})
 }
 
 func (s *Server) requireAdmin() gin.HandlerFunc {
