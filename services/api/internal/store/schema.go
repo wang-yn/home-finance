@@ -6,15 +6,36 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS households (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	name TEXT NOT NULL,
-	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+	status TEXT NOT NULL DEFAULT 'active',
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS members (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	household_id INTEGER NOT NULL,
-	name TEXT NOT NULL,
+	nickname TEXT NOT NULL,
+	session_token_hash TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL DEFAULT 'active',
+	last_active_at TIMESTAMP,
 	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	FOREIGN KEY (household_id) REFERENCES households(id)
+);
+
+CREATE TABLE IF NOT EXISTS invite_codes (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	household_id INTEGER NOT NULL,
+	code_hash TEXT NOT NULL UNIQUE,
+	created_by_id INTEGER,
+	status TEXT NOT NULL DEFAULT 'active',
+	expires_at TIMESTAMP NOT NULL,
+	used_by_id INTEGER,
+	used_at TIMESTAMP,
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	FOREIGN KEY (household_id) REFERENCES households(id),
+	FOREIGN KEY (created_by_id) REFERENCES members(id),
+	FOREIGN KEY (used_by_id) REFERENCES members(id)
 );
 
 CREATE TABLE IF NOT EXISTS categories (
@@ -22,7 +43,11 @@ CREATE TABLE IF NOT EXISTS categories (
 	household_id INTEGER NOT NULL,
 	name TEXT NOT NULL,
 	kind TEXT NOT NULL DEFAULT 'expense',
+	color TEXT NOT NULL DEFAULT '',
+	sort_order INTEGER NOT NULL DEFAULT 0,
+	status TEXT NOT NULL DEFAULT 'active',
 	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	FOREIGN KEY (household_id) REFERENCES households(id)
 );
 
@@ -35,12 +60,24 @@ CREATE TABLE IF NOT EXISTS expenses (
 	currency TEXT NOT NULL DEFAULT 'CNY',
 	note TEXT NOT NULL DEFAULT '',
 	spent_at TIMESTAMP NOT NULL,
+	deleted_at TIMESTAMP,
 	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	FOREIGN KEY (household_id) REFERENCES households(id),
 	FOREIGN KEY (member_id) REFERENCES members(id),
 	FOREIGN KEY (category_id) REFERENCES categories(id)
 );
 
+CREATE TABLE IF NOT EXISTS admin_sessions (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	token_hash TEXT NOT NULL UNIQUE,
+	expires_at TIMESTAMP NOT NULL,
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_expenses_household_spent_at ON expenses(household_id, spent_at DESC);
-CREATE INDEX IF NOT EXISTS idx_members_household_name ON members(household_id, name);
+CREATE INDEX IF NOT EXISTS idx_expenses_household_category ON expenses(household_id, category_id);
+CREATE INDEX IF NOT EXISTS idx_expenses_household_member ON expenses(household_id, member_id);
+CREATE INDEX IF NOT EXISTS idx_members_household_nickname ON members(household_id, nickname);
+CREATE INDEX IF NOT EXISTS idx_categories_household_sort ON categories(household_id, sort_order);
 `
