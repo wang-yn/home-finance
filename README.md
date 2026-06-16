@@ -15,6 +15,12 @@ Multiple people jointly record and analyze household financial expenses.
 - `services/api`: Go API and SQLite schema
 - `docs`: project notes
 
+## Project Standards
+
+- 单元测试优先：新功能、缺陷修复和重构默认先补单元测试。
+- 代码提交规范：使用 Lora 规范，提交消息使用中文。
+- 详细规范见 `docs/project-standards.md`。
+
 ## Quick Start
 
 Install dependencies:
