@@ -71,9 +71,4 @@ CREATE TABLE IF NOT EXISTS admin_sessions (
 	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_expenses_household_spent_at ON expenses(household_id, spent_at DESC);
-CREATE INDEX IF NOT EXISTS idx_expenses_household_category ON expenses(household_id, category_id);
-CREATE INDEX IF NOT EXISTS idx_expenses_household_member ON expenses(household_id, member_id);
-CREATE INDEX IF NOT EXISTS idx_members_household_nickname ON members(household_id, nickname);
-CREATE INDEX IF NOT EXISTS idx_categories_household_sort ON categories(household_id, sort_order, name);
 `
