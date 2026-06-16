@@ -165,6 +165,16 @@ export function exportExpensesCsvUrl(baseUrl: string, householdID: number, month
   return `${trimTrailingSlash(baseUrl)}/admin/exports/expenses.csv?${params.toString()}`
 }
 
+export async function exportExpensesCsv(baseUrl: string, token: string, householdID: number, month?: string) {
+  const response = await fetch(exportExpensesCsvUrl(baseUrl, householdID, month), {
+    headers: new Headers({ Authorization: `Bearer ${token}` }),
+  })
+  if (!response.ok) {
+    throw new ApiError(response.status, await responseErrorMessage(response))
+  }
+  return response.text()
+}
+
 export async function joinHousehold(baseUrl: string, inviteCode: string, nickname: string) {
   const payload = await request<ApiEnvelope<JoinResult>>(baseUrl, '/api/join', {
     method: 'POST',

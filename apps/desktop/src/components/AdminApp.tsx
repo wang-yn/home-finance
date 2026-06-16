@@ -6,12 +6,11 @@ import {
   createHousehold,
   createInviteCode,
   disableInviteCode,
-  exportExpensesCsvUrl,
+  exportExpensesCsv,
   getAdminStatus,
   listAdminCategories,
   listHouseholds,
   listMembers,
-  updateAdminCategory,
   updateHousehold,
   updateMember,
 } from '../api/client'
@@ -86,6 +85,19 @@ export function AdminApp() {
     }
   }, [adminToken, handleError, selectedHouseholdID, serviceUrl])
 
+  const loadHouseholdScope = useCallback(async (token: string, householdID: number) => {
+    setMembers([])
+    setCategories([])
+    setInviteCodes([])
+    setSelectedHouseholdID(householdID)
+    const [nextMembers, nextCategories] = await Promise.all([
+      listMembers(serviceUrl, token, householdID),
+      listAdminCategories(serviceUrl, token, householdID),
+    ])
+    setMembers(nextMembers)
+    setCategories(nextCategories)
+  }, [serviceUrl])
+
   useEffect(() => {
     if (!adminToken) {
       return
@@ -103,7 +115,6 @@ export function AdminApp() {
       setAdminToken(result.token)
       setView('status')
       setMessage('后台已登录')
-      await refreshAdmin(result.token)
     } catch (nextError) {
       handleError(nextError)
     } finally {
@@ -154,6 +165,22 @@ export function AdminApp() {
       await updateHousehold(serviceUrl, adminToken, household.id, name.trim())
       setMessage('家庭已更新')
       await refreshAdmin(adminToken, household.id)
+    } catch (nextError) {
+      handleError(nextError)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function selectHousehold(householdID: number) {
+    if (!adminToken) {
+      return
+    }
+    setLoading(true)
+    setError('')
+    try {
+      await loadHouseholdScope(adminToken, householdID)
+      setMessage('家庭已选择')
     } catch (nextError) {
       handleError(nextError)
     } finally {
@@ -235,21 +262,21 @@ export function AdminApp() {
     }
   }
 
-  async function disableCategory(category: Category) {
-    if (!adminToken) {
+  async function downloadCsv() {
+    if (!adminToken || !selectedHouseholdID) {
       return
     }
     setLoading(true)
     setError('')
     try {
-      await updateAdminCategory(serviceUrl, adminToken, category.id, {
-        name: category.name,
-        kind: category.kind,
-        color: category.color,
-        sortOrder: category.sortOrder,
-      })
-      setMessage('分类已更新')
-      await refreshAdmin(adminToken, category.householdId)
+      const csv = await exportExpensesCsv(serviceUrl, adminToken, selectedHouseholdID, month)
+      const blobUrl = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
+      const link = document.createElement('a')
+      link.href = blobUrl
+      link.download = `expenses-${selectedHouseholdID}-${month || 'all'}.csv`
+      link.click()
+      URL.revokeObjectURL(blobUrl)
+      setMessage('CSV 已下载')
     } catch (nextError) {
       handleError(nextError)
     } finally {
@@ -330,7 +357,7 @@ export function AdminApp() {
                       <strong>{household.name}</strong>
                       <span>{household.status}</span>
                     </div>
-                    <button type="button" className="secondary" onClick={() => setSelectedHouseholdID(household.id)}>
+                    <button type="button" className="secondary" onClick={() => selectHousehold(household.id)}>
                       选择
                     </button>
                     <button type="button" className="secondary" onClick={() => renameHousehold(household)}>重命名</button>
@@ -412,7 +439,6 @@ export function AdminApp() {
                       <strong>{category.name}</strong>
                       <span>{category.status} · {category.color}</span>
                     </div>
-                    <button type="button" className="secondary" onClick={() => disableCategory(category)}>同步</button>
                   </article>
                 ))}
               </div>
@@ -428,9 +454,9 @@ export function AdminApp() {
                   <input type="month" value={month} onChange={(event) => setMonth(event.target.value)} />
                 </label>
                 {selectedHouseholdID ? (
-                  <a className="download-link" href={exportExpensesCsvUrl(serviceUrl, selectedHouseholdID, month)}>
+                  <button type="button" className="download-link" onClick={downloadCsv} disabled={loading}>
                     下载 CSV
-                  </a>
+                  </button>
                 ) : (
                   <p className="empty-state">请先选择家庭</p>
                 )}

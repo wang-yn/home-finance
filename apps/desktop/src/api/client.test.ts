@@ -6,6 +6,7 @@ import {
   createInviteCode,
   deleteExpense,
   disableInviteCode,
+  exportExpensesCsv,
   exportExpensesCsvUrl,
   getCategories,
   getAdminStatus,
@@ -221,6 +222,19 @@ describe('admin API helpers', () => {
     expect(exportExpensesCsvUrl('http://localhost:8080/', 1, '2026-06')).toBe(
       'http://localhost:8080/admin/exports/expenses.csv?householdId=1&month=2026-06',
     )
+  })
+
+  it('downloads CSV exports with admin auth', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('spent_at,member\n', { status: 200 }))
+
+    const csv = await exportExpensesCsv('http://localhost:8080', 'admin-token', 1, '2026-06')
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8080/admin/exports/expenses.csv?householdId=1&month=2026-06',
+      expect.any(Object),
+    )
+    expect(requestHeaders(0).get('Authorization')).toBe('Bearer admin-token')
+    expect(csv).toBe('spent_at,member\n')
   })
 })
 
