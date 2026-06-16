@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"database/sql"
+	"encoding/csv"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -611,6 +612,84 @@ func TestDeviceExpenseRejectsCrossHouseholdAndInactiveCategory(t *testing.T) {
 	}
 }
 
+func TestLegacyCreateExpenseDerivesMemberFromSession(t *testing.T) {
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close()
+
+	server := NewServer(db, Config{AdminPassword: "secret"})
+	adminToken := loginAdmin(t, server)
+	homeHouseholdID, _, homeInviteCode := createHouseholdInvite(t, server, adminToken, "Home")
+	_, _, otherInviteCode := createHouseholdInvite(t, server, adminToken, "Other")
+	homeDevice := joinDevice(t, server, homeInviteCode, "小王")
+	otherDevice := joinDevice(t, server, otherInviteCode, "小李")
+	homeCategoryID := firstCategoryID(t, server, homeDevice.Token)
+
+	createResponse := memberJSONRequest(server, homeDevice.Token, http.MethodPost, "/api/households/"+strconv.FormatInt(homeHouseholdID, 10)+"/expenses", `{"memberId":`+strconv.FormatInt(otherDevice.MemberID, 10)+`,"amountCents":100,"categoryId":`+strconv.FormatInt(homeCategoryID, 10)+`,"spentAt":"2026-05-10T08:30:00Z","note":"legacy"}`)
+	if createResponse.Code != http.StatusCreated {
+		t.Fatalf("expected legacy create expense 201, got %d: %s", createResponse.Code, createResponse.Body.String())
+	}
+	var createPayload struct {
+		Data struct {
+			MemberID int64 `json:"memberId"`
+		} `json:"data"`
+	}
+	decodeJSON(t, createResponse, &createPayload)
+	if createPayload.Data.MemberID != homeDevice.MemberID {
+		t.Fatalf("expected legacy create to derive member %d from session, got %d", homeDevice.MemberID, createPayload.Data.MemberID)
+	}
+}
+
+func TestAdminExportEscapesSpreadsheetDangerousCells(t *testing.T) {
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close()
+
+	server := NewServer(db, Config{AdminPassword: "secret"})
+	adminToken := loginAdmin(t, server)
+	householdID, _, inviteCode := createHouseholdInvite(t, server, adminToken, "Home")
+	joinPayload := joinDevice(t, server, inviteCode, "小王")
+	categoryID := firstCategoryID(t, server, joinPayload.Token)
+
+	createResponse := memberJSONRequest(server, joinPayload.Token, http.MethodPost, "/api/expenses", `{"amountCents":12345,"categoryId":`+strconv.FormatInt(categoryID, 10)+`,"spentAt":"2026-05-10T08:30:00Z","note":"=HYPERLINK(\"http://evil\")"}`)
+	if createResponse.Code != http.StatusCreated {
+		t.Fatalf("expected create expense 201, got %d: %s", createResponse.Code, createResponse.Body.String())
+	}
+
+	exportResponse := adminJSONRequest(t, server, adminToken, http.MethodGet, "/admin/exports/expenses.csv?householdId="+strconv.FormatInt(householdID, 10)+"&month=2026-05", "")
+	if exportResponse.Code != http.StatusOK {
+		t.Fatalf("expected export CSV 200, got %d: %s", exportResponse.Code, exportResponse.Body.String())
+	}
+	records := decodeCSV(t, exportResponse.Body.String())
+	if len(records) != 2 {
+		t.Fatalf("expected header and one data row, got %#v", records)
+	}
+	if records[1][5] != `'=HYPERLINK("http://evil")` {
+		t.Fatalf("expected escaped dangerous note, got %q", records[1][5])
+	}
+}
+
+func TestAdminExportInvalidMonthReturnsBadRequest(t *testing.T) {
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close()
+
+	server := NewServer(db, Config{AdminPassword: "secret"})
+	adminToken := loginAdmin(t, server)
+	householdID, _, _ := createHouseholdInvite(t, server, adminToken, "Home")
+
+	exportResponse := adminJSONRequest(t, server, adminToken, http.MethodGet, "/admin/exports/expenses.csv?householdId="+strconv.FormatInt(householdID, 10)+"&month=bad", "")
+	if exportResponse.Code != http.StatusBadRequest {
+		t.Fatalf("invalid month expected 400, got %d: %s", exportResponse.Code, exportResponse.Body.String())
+	}
+}
+
 func TestInviteUsageCountIncrementsOnlyOnSuccessfulJoins(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "api.db")
 	db, err := store.Open(dbPath)
@@ -1034,6 +1113,16 @@ func firstCategoryID(t *testing.T, server *Server, token string) int64 {
 		t.Fatalf("expected at least one category, got %#v", payload.Data)
 	}
 	return payload.Data[0].ID
+}
+
+func decodeCSV(t *testing.T, body string) [][]string {
+	t.Helper()
+
+	records, err := csv.NewReader(strings.NewReader(body)).ReadAll()
+	if err != nil {
+		t.Fatalf("decode csv: %v; body=%s", err, body)
+	}
+	return records
 }
 
 func usageCount(t *testing.T, db *sql.DB, inviteID int64) int {

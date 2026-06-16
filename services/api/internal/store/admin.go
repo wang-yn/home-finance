@@ -78,8 +78,8 @@ func (s *Store) ExportExpensesCSVRows(ctx context.Context, householdID int64, mo
 	query := `
 		SELECT e.spent_at, m.nickname, c.name, e.amount_cents, e.currency, e.note
 		FROM expenses e
-		INNER JOIN members m ON m.id = e.member_id
-		INNER JOIN categories c ON c.id = e.category_id
+		INNER JOIN members m ON m.id = e.member_id AND m.household_id = e.household_id
+		INNER JOIN categories c ON c.id = e.category_id AND c.household_id = e.household_id
 		WHERE e.household_id = ? AND e.deleted_at IS NULL
 	`
 	args := []any{householdID}

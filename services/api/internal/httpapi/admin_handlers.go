@@ -126,6 +126,10 @@ func (s *Server) adminExportExpensesCSV(c *gin.Context) {
 
 	rows, err := s.store.ExportExpensesCSVRows(c.Request.Context(), householdID, c.Query("month"))
 	if err != nil {
+		if strings.Contains(err.Error(), "invalid month") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		writeAdminStoreError(c, err, "export expenses")
 		return
 	}
@@ -140,11 +144,11 @@ func (s *Server) adminExportExpensesCSV(c *gin.Context) {
 	for _, row := range rows {
 		if err := writer.Write([]string{
 			row.SpentAt.Format(time.RFC3339),
-			row.Member,
-			row.Category,
+			escapeSpreadsheetCell(row.Member),
+			escapeSpreadsheetCell(row.Category),
 			row.Amount,
 			row.Currency,
-			row.Note,
+			escapeSpreadsheetCell(row.Note),
 		}); err != nil {
 			c.Status(http.StatusInternalServerError)
 			return
@@ -154,6 +158,18 @@ func (s *Server) adminExportExpensesCSV(c *gin.Context) {
 	if err := writer.Error(); err != nil {
 		c.Status(http.StatusInternalServerError)
 		return
+	}
+}
+
+func escapeSpreadsheetCell(value string) string {
+	if value == "" {
+		return value
+	}
+	switch value[0] {
+	case '=', '+', '-', '@', '\t', '\r':
+		return "'" + value
+	default:
+		return value
 	}
 }
 

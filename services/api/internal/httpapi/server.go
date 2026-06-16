@@ -140,6 +140,12 @@ func (s *Server) legacyCreateExpense(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid expense payload"})
 		return
 	}
+	session, ok := memberSession(c)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "member session"})
+		return
+	}
+	input.MemberID = session.Member.ID
 
 	expense, err := s.store.CreateExpenseForHousehold(c.Request.Context(), householdID, input)
 	if err != nil {
