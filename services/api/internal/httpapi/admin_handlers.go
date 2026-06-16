@@ -147,7 +147,7 @@ func (s *Server) adminExportExpensesCSV(c *gin.Context) {
 			escapeSpreadsheetCell(row.Member),
 			escapeSpreadsheetCell(row.Category),
 			row.Amount,
-			row.Currency,
+			escapeSpreadsheetCell(row.Currency),
 			escapeSpreadsheetCell(row.Note),
 		}); err != nil {
 			c.Status(http.StatusInternalServerError)

@@ -655,7 +655,7 @@ func TestAdminExportEscapesSpreadsheetDangerousCells(t *testing.T) {
 	joinPayload := joinDevice(t, server, inviteCode, "小王")
 	categoryID := firstCategoryID(t, server, joinPayload.Token)
 
-	createResponse := memberJSONRequest(server, joinPayload.Token, http.MethodPost, "/api/expenses", `{"amountCents":12345,"categoryId":`+strconv.FormatInt(categoryID, 10)+`,"spentAt":"2026-05-10T08:30:00Z","note":"=HYPERLINK(\"http://evil\")"}`)
+	createResponse := memberJSONRequest(server, joinPayload.Token, http.MethodPost, "/api/expenses", `{"amountCents":12345,"currency":"@CNY","categoryId":`+strconv.FormatInt(categoryID, 10)+`,"spentAt":"2026-05-10T08:30:00Z","note":"=HYPERLINK(\"http://evil\")"}`)
 	if createResponse.Code != http.StatusCreated {
 		t.Fatalf("expected create expense 201, got %d: %s", createResponse.Code, createResponse.Body.String())
 	}
@@ -670,6 +670,9 @@ func TestAdminExportEscapesSpreadsheetDangerousCells(t *testing.T) {
 	}
 	if records[1][5] != `'=HYPERLINK("http://evil")` {
 		t.Fatalf("expected escaped dangerous note, got %q", records[1][5])
+	}
+	if records[1][4] != "'@CNY" {
+		t.Fatalf("expected escaped dangerous currency, got %q", records[1][4])
 	}
 }
 
