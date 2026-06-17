@@ -139,7 +139,7 @@ jobs:
         run: |
           AAPT_PATH="$(find "$ANDROID_HOME/build-tools" -name aapt -type f | sort -V | tail -n 1)"
           sudo ln -sf "$AAPT_PATH" /usr/local/bin/aapt
-          sh scripts/verify-android-apks.sh apps/desktop/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          sh scripts/verify-android-apks.sh apps/desktop/src-tauri/gen/android/app/build/outputs/apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
