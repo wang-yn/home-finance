@@ -72,6 +72,25 @@ func TestOpenCreatesMVPDatabaseSchema(t *testing.T) {
 	}
 }
 
+func TestOpenCreatesMissingDatabaseParentDirectory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "data", "home-finance.db")
+
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("open store with missing parent directory: %v", err)
+	}
+	defer db.Close()
+
+	var name string
+	err = db.db.QueryRowContext(context.Background(), "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'households'").Scan(&name)
+	if err != nil {
+		t.Fatalf("expected migrated database in created directory: %v", err)
+	}
+	if name != "households" {
+		t.Fatalf("table name = %q, want households", name)
+	}
+}
+
 func TestOpenMigratesInitialSchemaDatabase(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "legacy.db")
 	legacyDB, err := sql.Open("sqlite", path)

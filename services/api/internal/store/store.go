@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"home-finance/services/api/internal/domain"
@@ -17,6 +19,10 @@ type Store struct {
 }
 
 func Open(path string) (*Store, error) {
+	if err := ensureDatabaseParentDir(path); err != nil {
+		return nil, err
+	}
+
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err
@@ -31,6 +37,18 @@ func Open(path string) (*Store, error) {
 	}
 
 	return store, nil
+}
+
+func ensureDatabaseParentDir(path string) error {
+	if path == "" || path == ":memory:" || strings.HasPrefix(path, "file:") {
+		return nil
+	}
+
+	dir := filepath.Dir(path)
+	if dir == "." || dir == "" {
+		return nil
+	}
+	return os.MkdirAll(dir, 0o755)
 }
 
 func (s *Store) Close() error {
