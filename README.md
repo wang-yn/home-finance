@@ -46,6 +46,13 @@ docker compose up -d
 
 The Compose service publishes the API on `http://localhost:8080` and persists SQLite data in the named Docker volume `home-finance_home-finance-data`.
 
+For host directory mounts, make sure the directory exists. The container entrypoint adjusts `/data` ownership before starting the API:
+
+```yaml
+volumes:
+  - /volume1/docker/app_data/home-finance:/data
+```
+
 Useful Compose commands:
 
 ```sh

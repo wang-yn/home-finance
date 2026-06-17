@@ -12,17 +12,22 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/home-fi
 
 FROM alpine:3.22
 
-RUN addgroup -S homefinance && adduser -S -G homefinance homefinance
+RUN apk add --no-cache su-exec \
+  && addgroup -S homefinance \
+  && adduser -S -G homefinance homefinance
 
 WORKDIR /app
 COPY --from=build /out/home-finance-api /app/home-finance-api
+COPY services/api/docker-entrypoint.sh /app/docker-entrypoint.sh
 
 ENV HOME_FINANCE_DB_PATH=/data/home-finance.db
 
-RUN mkdir -p /data && chown -R homefinance:homefinance /data /app
+RUN chmod +x /app/docker-entrypoint.sh \
+  && mkdir -p /data \
+  && chown -R homefinance:homefinance /data /app
 
-USER homefinance
 EXPOSE 8080
 VOLUME ["/data"]
 
-ENTRYPOINT ["/app/home-finance-api"]
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+CMD ["/app/home-finance-api"]
