@@ -4,7 +4,7 @@ Home Finance is a small self-hosted collaborative household expense tracker.
 
 ## Runtime Shape
 
-The React/Tauri client owns the user experience and can target desktop and Android through Tauri 2. The Go API owns all authoritative data and exposes two HTTP surfaces:
+The React/Vite web client owns the user experience and can be served by the Go API or packaged by the Tauri 2 shell for desktop and Android. The Go API owns all authoritative data and exposes two HTTP surfaces:
 
 - Device API under `/api` for household members joining by invite code, managing expenses, listing categories, and reading analytics.
 - Admin API under `/admin` for household setup, invite code generation, member/category management, status checks, and CSV export.

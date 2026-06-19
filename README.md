@@ -11,7 +11,8 @@ Multiple people jointly record and analyze household financial expenses.
 
 ## Layout
 
-- `apps/desktop`: React/Tauri client
+- `apps/web`: React/Vite web client
+- `apps/tauri`: Tauri desktop and Android shell
 - `services/api`: Go API and SQLite schema
 - `docs`: project notes
 
@@ -92,14 +93,14 @@ Core endpoints:
 Install dependencies:
 
 ```sh
-cd apps/desktop
+cd apps/web
 npm install
 ```
 
 Run the web frontend:
 
 ```sh
-cd apps/desktop
+cd apps/web
 npm run dev
 ```
 
@@ -108,8 +109,8 @@ When the frontend is served by the API, it uses the current page origin as the d
 Run the Tauri app:
 
 ```sh
-cd apps/desktop
-npm run tauri dev
+cd apps/tauri
+npm --prefix ../web exec tauri -- dev
 ```
 
 The first screen defaults to the device experience. Use the mode switch at the top to open the admin console.
@@ -138,7 +139,7 @@ go vet ./...
 Frontend:
 
 ```sh
-cd apps/desktop
+cd apps/web
 npm run test
 npm run lint
 npm run build
@@ -147,7 +148,7 @@ npm run build
 Tauri:
 
 ```sh
-cd apps/desktop/src-tauri
+cd apps/tauri/src-tauri
 cargo check
 ```
 

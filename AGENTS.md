@@ -15,7 +15,8 @@ Home Finance 是一个多人共同记录和分析家庭财务支出的应用。
 
 主要目录：
 
-- `apps/desktop`: React/Tauri 客户端
+- `apps/web`: React/Vite Web 客户端
+- `apps/tauri`: Tauri 桌面和 Android 壳
 - `services/api`: Go API 和 SQLite 数据访问
 - `docs`: 项目文档
 
@@ -39,9 +40,9 @@ Home Finance 是一个多人共同记录和分析家庭财务支出的应用。
 
 根据改动范围选择最小但充分的验证：
 
-- 前端改动：在 `apps/desktop` 运行 `npm run lint`，必要时运行 `npm run build`。
+- 前端改动：在 `apps/web` 运行 `npm run lint`，必要时运行 `npm run build`。
 - 后端改动：在 `services/api` 运行 `go test ./...`。
-- Tauri/Rust 改动：在 `apps/desktop/src-tauri` 运行 `cargo check`。
+- Tauri/Rust 改动：在 `apps/tauri/src-tauri` 运行 `cargo check`。
 
 当前 Linux 环境运行 Tauri 检查可能需要系统依赖 `libdbus-1-dev` 和 `pkg-config`。如果缺失，应明确记录验证缺口。
 

@@ -1,13 +1,13 @@
 {
-  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "$schema": "../../web/node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Home Finance",
   "version": "0.1.0",
   "identifier": "com.homefinance.app",
   "build": {
-    "frontendDist": "../dist",
+    "frontendDist": "../../web/dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build"
+    "beforeDevCommand": "npm --prefix ../web run dev",
+    "beforeBuildCommand": "npm --prefix ../web run build"
   },
   "app": {
     "windows": [
