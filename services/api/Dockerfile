@@ -1,5 +1,15 @@
 # syntax=docker/dockerfile:1
 
+FROM node:24-alpine AS web-build
+
+WORKDIR /src/apps/desktop
+
+COPY apps/desktop/package.json apps/desktop/package-lock.json ./
+RUN npm ci
+
+COPY apps/desktop ./
+RUN npm run build
+
 FROM golang:1.26-alpine AS build
 
 WORKDIR /src/services/api
@@ -8,6 +18,7 @@ COPY services/api/go.mod services/api/go.sum ./
 RUN go mod download
 
 COPY services/api ./
+COPY --from=web-build /src/apps/desktop/dist ./internal/webui/dist
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/home-finance-api ./cmd/server
 
 FROM alpine:3.22

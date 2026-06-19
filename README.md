@@ -23,7 +23,7 @@ Multiple people jointly record and analyze household financial expenses.
 
 ## Backend
 
-The API listens on `:8080` by default.
+The API listens on `:8080` by default and serves the same React web UI from `/` when the binary includes a built frontend.
 
 Environment variables:
 
@@ -45,6 +45,7 @@ docker compose up -d
 ```
 
 The Compose service publishes the API on `http://localhost:8080` and persists SQLite data in the named Docker volume `home-finance_home-finance-data`.
+Open `http://localhost:8080` to use the web UI served by the API container.
 
 For host directory mounts, make sure the directory exists. The container entrypoint adjusts `/data` ownership before starting the API:
 
@@ -101,6 +102,8 @@ Run the web frontend:
 cd apps/desktop
 npm run dev
 ```
+
+When the frontend is served by the API, it uses the current page origin as the default service URL. Tauri and standalone Vite sessions can still save a custom service URL from the device connection screen.
 
 Run the Tauri app:
 

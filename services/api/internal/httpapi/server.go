@@ -1,8 +1,10 @@
 package httpapi
 
 import (
+	"io/fs"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -10,6 +12,7 @@ import (
 
 	"home-finance/services/api/internal/domain"
 	"home-finance/services/api/internal/store"
+	"home-finance/services/api/internal/webui"
 )
 
 type Server struct {
@@ -90,6 +93,8 @@ func (s *Server) routes() {
 	protectedHouseholdAPI.GET("/members", s.listMembers)
 	protectedHouseholdAPI.GET("/expenses", s.legacyListExpenses)
 	protectedHouseholdAPI.POST("/expenses", s.legacyCreateExpense)
+
+	s.mountWebUI()
 }
 
 func (s *Server) health(c *gin.Context) {
@@ -98,6 +103,45 @@ func (s *Server) health(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func (s *Server) mountWebUI() {
+	webFS, err := fs.Sub(webui.Files, "dist")
+	if err != nil {
+		return
+	}
+
+	fileServer := http.FileServer(http.FS(webFS))
+	s.router.NoRoute(func(c *gin.Context) {
+		path := c.Request.URL.Path
+		if isAPIRoute(path) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+
+		if path == "/" || !staticAssetExists(webFS, strings.TrimPrefix(path, "/")) {
+			c.Request.URL.Path = "/"
+		}
+		fileServer.ServeHTTP(c.Writer, c.Request)
+	})
+}
+
+func staticAssetExists(webFS fs.FS, name string) bool {
+	if name == "" || strings.HasSuffix(name, "/") {
+		return false
+	}
+	file, err := webFS.Open(name)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+
+	stat, err := file.Stat()
+	return err == nil && !stat.IsDir()
+}
+
+func isAPIRoute(path string) bool {
+	return path == "/api" || path == "/admin" || strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/admin/")
 }
 
 func (s *Server) listMembers(c *gin.Context) {

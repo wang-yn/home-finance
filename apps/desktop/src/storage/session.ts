@@ -3,7 +3,7 @@ const memberTokenKey = 'homeFinance.memberToken'
 const adminTokenKey = 'homeFinance.adminToken'
 
 export function loadServiceUrl() {
-  return localStorage.getItem(serviceUrlKey) || 'http://localhost:8080'
+  return localStorage.getItem(serviceUrlKey) || defaultServiceUrl()
 }
 
 export function saveServiceUrl(value: string) {
@@ -32,4 +32,11 @@ export function saveAdminToken(value: string) {
 
 export function clearAdminToken() {
   localStorage.removeItem(adminTokenKey)
+}
+
+function defaultServiceUrl() {
+  if (globalThis.location?.protocol === 'http:' || globalThis.location?.protocol === 'https:') {
+    return globalThis.location.origin
+  }
+  return 'http://localhost:8080'
 }

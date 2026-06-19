@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   clearAdminToken,
   clearMemberToken,
@@ -15,10 +15,17 @@ import {
 
 beforeEach(() => {
   localStorage.clear()
+  vi.unstubAllGlobals()
 })
 
 describe('session storage', () => {
-  it('uses the local API URL by default', () => {
+  it('uses the current origin by default', () => {
+    expect(loadServiceUrl()).toBe(window.location.origin)
+  })
+
+  it('falls back to the local API URL outside http origins', () => {
+    vi.stubGlobal('location', { protocol: 'tauri:', origin: 'tauri://localhost' })
+
     expect(loadServiceUrl()).toBe('http://localhost:8080')
   })
 

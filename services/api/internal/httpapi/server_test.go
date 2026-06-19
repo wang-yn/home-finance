@@ -34,6 +34,52 @@ func TestHealthReturnsOK(t *testing.T) {
 	}
 }
 
+func TestWebUIFallbackServesIndexForClientRoutes(t *testing.T) {
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close()
+
+	server := NewServer(db)
+	request := httptest.NewRequest(http.MethodGet, "/settings/profile", nil)
+	response := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected web fallback 200, got %d: %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `<div id="root"></div>`) {
+		t.Fatalf("expected web index, got: %s", response.Body.String())
+	}
+}
+
+func TestWebUIFallbackDoesNotMaskAPINotFound(t *testing.T) {
+	db, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close()
+
+	server := NewServer(db)
+	for _, path := range []string{"/api", "/api/missing", "/admin", "/admin/missing"} {
+		t.Run(path, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, path, nil)
+			response := httptest.NewRecorder()
+
+			server.Handler().ServeHTTP(response, request)
+
+			if response.Code != http.StatusNotFound {
+				t.Fatalf("expected api 404, got %d: %s", response.Code, response.Body.String())
+			}
+			if !strings.Contains(response.Body.String(), `"error":"not found"`) {
+				t.Fatalf("expected json not found, got: %s", response.Body.String())
+			}
+		})
+	}
+}
+
 func TestAdminLoginAndStatus(t *testing.T) {
 	db, err := store.Open(":memory:")
 	if err != nil {
