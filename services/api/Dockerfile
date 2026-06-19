@@ -2,6 +2,11 @@
 
 FROM node:24-alpine AS web-build
 
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG ALL_PROXY
+ARG NO_PROXY
+
 WORKDIR /src/apps/desktop
 
 COPY apps/desktop/package.json apps/desktop/package-lock.json ./
@@ -11,6 +16,11 @@ COPY apps/desktop ./
 RUN npm run build
 
 FROM golang:1.26-alpine AS build
+
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG ALL_PROXY
+ARG NO_PROXY
 
 WORKDIR /src/services/api
 
@@ -22,6 +32,11 @@ COPY --from=web-build /src/apps/desktop/dist ./internal/webui/dist
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/home-finance-api ./cmd/server
 
 FROM alpine:3.22
+
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG ALL_PROXY
+ARG NO_PROXY
 
 RUN apk add --no-cache su-exec \
   && addgroup -S homefinance \
