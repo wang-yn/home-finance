@@ -4,28 +4,34 @@
   color: #172026;
 }
 
-.mode-switch {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  display: flex;
-  justify-content: center;
-  gap: 8px;
-  padding: 10px;
-  background: rgba(244, 247, 246, 0.95);
-  border-bottom: 1px solid #dfe7e8;
+.public-shell {
+  display: grid;
+  place-items: center;
+  padding: 24px;
 }
 
-.mode-switch button {
-  min-height: 36px;
-  background: #ffffff;
-  color: #40545c;
+.public-entry {
+  display: grid;
+  gap: 16px;
+  width: min(440px, 100%);
   border: 1px solid #dfe7e8;
+  border-radius: 8px;
+  padding: 24px;
+  background: #ffffff;
 }
 
-.mode-switch button.active {
-  background: #172026;
-  color: #ffffff;
+.public-entry h1 {
+  font-size: 28px;
+}
+
+.entry-copy {
+  color: #5d747d;
+  line-height: 1.6;
+}
+
+.service-panel {
+  border-bottom: 1px solid #edf1f2;
+  padding-bottom: 16px;
 }
 
 .workspace {

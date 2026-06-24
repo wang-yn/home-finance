@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
+  ApiError,
   adminLogin,
   createAdminCategory,
   createHousehold,
@@ -20,7 +21,7 @@ import type { AdminStatus, Category, CategoryInput, Household, InviteCode, Membe
 import { clearAdminToken, loadAdminToken, loadServiceUrl, saveAdminToken } from '../storage/session'
 import { formatMonth } from '../utils/format'
 
-type AdminView = 'login' | 'status' | 'households' | 'invites' | 'members' | 'categories' | 'export'
+type AdminView = 'status' | 'households' | 'invites' | 'members' | 'categories' | 'export'
 
 const emptyCategoryForm: CategoryInput = {
   name: '',
@@ -33,7 +34,9 @@ const emptyCategoryForm: CategoryInput = {
 export function AdminApp() {
   const [serviceUrl] = useState(loadServiceUrl)
   const [adminToken, setAdminToken] = useState(loadAdminToken)
-  const [view, setView] = useState<AdminView>(adminToken ? 'status' : 'login')
+  const [validatedAdminToken, setValidatedAdminToken] = useState<string | null>(null)
+  const [hydratedAdminToken, setHydratedAdminToken] = useState<string | null>(null)
+  const [view, setView] = useState<AdminView>('status')
   const [password, setPassword] = useState('')
   const [status, setStatus] = useState<AdminStatus | null>(null)
   const [households, setHouseholds] = useState<Household[]>([])
@@ -58,10 +61,58 @@ export function AdminApp() {
     setError(nextError instanceof Error ? nextError.message : '请求失败')
   }, [])
 
-  const refreshAdmin = useCallback(async (token = adminToken, householdID = selectedHouseholdID) => {
+  const logout = useCallback(() => {
+    clearAdminToken()
+    setAdminToken(null)
+    setValidatedAdminToken(null)
+    setHydratedAdminToken(null)
+    setView('status')
+    setStatus(null)
+    setHouseholds([])
+    setSelectedHouseholdID(null)
+    setMembers([])
+    setCategories([])
+    setInviteCodes([])
+    setHouseholdName('')
+    setInviteDays('7')
+    setCategoryForm(emptyCategoryForm)
+    setMessage('')
+    setError('')
+  }, [])
+
+  const handleAuthenticatedError = useCallback((nextError: unknown, requestToken: string) => {
+    handleError(nextError)
+    if (nextError instanceof ApiError && nextError.status === 401 && loadAdminToken() === requestToken) {
+      logout()
+    }
+  }, [handleError, logout])
+
+  const validateAdminToken = useCallback(async (token = adminToken) => {
     if (!token) {
       return
     }
+    const isCurrentToken = () => loadAdminToken() === token
+    setError('')
+    try {
+      const nextStatus = await getAdminStatus(serviceUrl, token)
+      if (!isCurrentToken()) {
+        return
+      }
+      setStatus(nextStatus)
+      setValidatedAdminToken(token)
+    } catch (nextError) {
+      if (!isCurrentToken()) {
+        return
+      }
+      handleAuthenticatedError(nextError, token)
+    }
+  }, [adminToken, handleAuthenticatedError, serviceUrl])
+
+  const refreshAdminData = useCallback(async (token = adminToken, householdID = selectedHouseholdID) => {
+    if (!token) {
+      return
+    }
+    const isCurrentToken = () => loadAdminToken() === token
     setLoading(true)
     setError('')
     try {
@@ -77,20 +128,28 @@ export function AdminApp() {
             listInviteCodes(serviceUrl, token, nextSelectedID),
           ])
         : [[], [], []]
+      if (!isCurrentToken()) {
+        return
+      }
       setStatus(nextStatus)
       setHouseholds(nextHouseholds)
       setSelectedHouseholdID(nextSelectedID)
       setMembers(nextMembers)
       setCategories(nextCategories)
       setInviteCodes(nextInviteCodes)
+      setHydratedAdminToken(token)
     } catch (nextError) {
-      handleError(nextError)
+      if (!isCurrentToken()) {
+        return
+      }
+      handleAuthenticatedError(nextError, token)
     } finally {
       setLoading(false)
     }
-  }, [adminToken, handleError, selectedHouseholdID, serviceUrl])
+  }, [adminToken, handleAuthenticatedError, selectedHouseholdID, serviceUrl])
 
   const loadHouseholdScope = useCallback(async (token: string, householdID: number) => {
+    const isCurrentToken = () => loadAdminToken() === token
     setMembers([])
     setCategories([])
     setInviteCodes([])
@@ -100,17 +159,27 @@ export function AdminApp() {
       listAdminCategories(serviceUrl, token, householdID),
       listInviteCodes(serviceUrl, token, householdID),
     ])
+    if (!isCurrentToken()) {
+      return
+    }
     setMembers(nextMembers)
     setCategories(nextCategories)
     setInviteCodes(nextInviteCodes)
   }, [serviceUrl])
 
   useEffect(() => {
-    if (!adminToken) {
+    if (!adminToken || validatedAdminToken === adminToken) {
       return
     }
-    void Promise.resolve().then(() => refreshAdmin(adminToken))
-  }, [adminToken, refreshAdmin])
+    void Promise.resolve().then(() => validateAdminToken(adminToken))
+  }, [adminToken, validateAdminToken, validatedAdminToken])
+
+  useEffect(() => {
+    if (!adminToken || validatedAdminToken !== adminToken || hydratedAdminToken === adminToken) {
+      return
+    }
+    void Promise.resolve().then(() => refreshAdminData(adminToken))
+  }, [adminToken, hydratedAdminToken, refreshAdminData, validatedAdminToken])
 
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -120,6 +189,9 @@ export function AdminApp() {
       const result = await adminLogin(serviceUrl, password)
       saveAdminToken(result.token)
       setAdminToken(result.token)
+      const nextStatus = await getAdminStatus(serviceUrl, result.token)
+      setStatus(nextStatus)
+      setValidatedAdminToken(result.token)
       setView('status')
       setMessage('后台已登录')
     } catch (nextError) {
@@ -129,15 +201,27 @@ export function AdminApp() {
     }
   }
 
-  function logout() {
-    clearAdminToken()
-    setAdminToken(null)
-    setView('login')
-    setStatus(null)
-    setHouseholds([])
-    setMembers([])
-    setCategories([])
-    setInviteCodes([])
+  if (!adminToken || validatedAdminToken !== adminToken) {
+    return (
+      <main className="app-shell public-shell">
+        <section className="public-entry" aria-labelledby="admin-public-title">
+          <p className="eyebrow">管理后台</p>
+          <h1 id="admin-public-title">管理后台登录</h1>
+          <p className="entry-copy">登录后管理家庭、成员、分类和导出。</p>
+
+          {error && <p className="error" role="alert">{error}</p>}
+          {message && !error && <p className="status" aria-live="polite">{message}</p>}
+
+          <form className="form-grid" onSubmit={login}>
+            <label>
+              <span>管理密码</span>
+              <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+            </label>
+            <button type="submit" disabled={loading}>登录</button>
+          </form>
+        </section>
+      </main>
+    )
   }
 
   async function submitHousehold(event: FormEvent<HTMLFormElement>) {
@@ -151,9 +235,9 @@ export function AdminApp() {
       await createHousehold(serviceUrl, adminToken, householdName.trim())
       setHouseholdName('')
       setMessage('家庭已创建')
-      await refreshAdmin(adminToken)
+      await refreshAdminData(adminToken)
     } catch (nextError) {
-      handleError(nextError)
+      handleAuthenticatedError(nextError, adminToken)
     } finally {
       setLoading(false)
     }
@@ -172,9 +256,9 @@ export function AdminApp() {
     try {
       await updateHousehold(serviceUrl, adminToken, household.id, name.trim())
       setMessage('家庭已更新')
-      await refreshAdmin(adminToken, household.id)
+      await refreshAdminData(adminToken, household.id)
     } catch (nextError) {
-      handleError(nextError)
+      handleAuthenticatedError(nextError, adminToken)
     } finally {
       setLoading(false)
     }
@@ -190,7 +274,7 @@ export function AdminApp() {
       await loadHouseholdScope(adminToken, householdID)
       setMessage('家庭已选择')
     } catch (nextError) {
-      handleError(nextError)
+      handleAuthenticatedError(nextError, adminToken)
     } finally {
       setLoading(false)
     }
@@ -208,7 +292,7 @@ export function AdminApp() {
       setMessage('邀请码已创建')
       await loadHouseholdScope(adminToken, selectedHouseholdID)
     } catch (nextError) {
-      handleError(nextError)
+      handleAuthenticatedError(nextError, adminToken)
     } finally {
       setLoading(false)
     }
@@ -227,7 +311,7 @@ export function AdminApp() {
         await loadHouseholdScope(adminToken, selectedHouseholdID)
       }
     } catch (nextError) {
-      handleError(nextError)
+      handleAuthenticatedError(nextError, adminToken)
     } finally {
       setLoading(false)
     }
@@ -243,9 +327,9 @@ export function AdminApp() {
     try {
       await updateMember(serviceUrl, adminToken, member.id, { nickname: member.nickname, status: nextStatus })
       setMessage('成员状态已更新')
-      await refreshAdmin(adminToken, member.householdId)
+      await refreshAdminData(adminToken, member.householdId)
     } catch (nextError) {
-      handleError(nextError)
+      handleAuthenticatedError(nextError, adminToken)
     } finally {
       setLoading(false)
     }
@@ -264,9 +348,9 @@ export function AdminApp() {
     try {
       await updateMember(serviceUrl, adminToken, member.id, { nickname: nickname.trim(), status: member.status })
       setMessage('成员已重命名')
-      await refreshAdmin(adminToken, member.householdId)
+      await refreshAdminData(adminToken, member.householdId)
     } catch (nextError) {
-      handleError(nextError)
+      handleAuthenticatedError(nextError, adminToken)
     } finally {
       setLoading(false)
     }
@@ -283,9 +367,9 @@ export function AdminApp() {
       await createAdminCategory(serviceUrl, adminToken, selectedHouseholdID, categoryForm)
       setCategoryForm(emptyCategoryForm)
       setMessage('分类已创建')
-      await refreshAdmin(adminToken, selectedHouseholdID)
+      await refreshAdminData(adminToken, selectedHouseholdID)
     } catch (nextError) {
-      handleError(nextError)
+      handleAuthenticatedError(nextError, adminToken)
     } finally {
       setLoading(false)
     }
@@ -314,9 +398,9 @@ export function AdminApp() {
         status: category.status,
       })
       setMessage('分类已更新')
-      await refreshAdmin(adminToken, category.householdId)
+      await refreshAdminData(adminToken, category.householdId)
     } catch (nextError) {
-      handleError(nextError)
+      handleAuthenticatedError(nextError, adminToken)
     } finally {
       setLoading(false)
     }
@@ -337,9 +421,9 @@ export function AdminApp() {
         status: 'disabled',
       })
       setMessage('分类已停用')
-      await refreshAdmin(adminToken, category.householdId)
+      await refreshAdminData(adminToken, category.householdId)
     } catch (nextError) {
-      handleError(nextError)
+      handleAuthenticatedError(nextError, adminToken)
     } finally {
       setLoading(false)
     }
@@ -361,7 +445,7 @@ export function AdminApp() {
       URL.revokeObjectURL(blobUrl)
       setMessage('CSV 已下载')
     } catch (nextError) {
-      handleError(nextError)
+      handleAuthenticatedError(nextError, adminToken)
     } finally {
       setLoading(false)
     }
@@ -376,7 +460,7 @@ export function AdminApp() {
             <h1>管理后台</h1>
           </div>
           <nav className="mobile-nav admin-nav" aria-label="后台导航">
-            {(['login', 'status', 'households', 'invites', 'members', 'categories', 'export'] as AdminView[]).map((item) => (
+            {(['status', 'households', 'invites', 'members', 'categories', 'export'] as AdminView[]).map((item) => (
               <button
                 type="button"
                 key={item}
@@ -391,24 +475,8 @@ export function AdminApp() {
         </aside>
 
         <section className="admin-main">
-          {error && <p className="error">{error}</p>}
-          {message && !error && <p className="status">{message}</p>}
-
-          {view === 'login' && (
-            <section className="panel">
-              <div className="panel-header">
-                <h2>后台登录</h2>
-                <span>{serviceUrl}</span>
-              </div>
-              <form className="form-grid" onSubmit={login}>
-                <label>
-                  <span>管理密码</span>
-                  <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
-                </label>
-                <button type="submit" disabled={loading}>登录</button>
-              </form>
-            </section>
-          )}
+          {error && <p className="error" role="alert">{error}</p>}
+          {message && !error && <p className="status" aria-live="polite">{message}</p>}
 
           {view === 'status' && (
             <section className="metric-grid">
@@ -588,7 +656,6 @@ function ListEmpty({ show, text }: { show: boolean; text: string }) {
 
 function adminViewLabel(view: AdminView) {
   const labels: Record<AdminView, string> = {
-    login: '登录',
     status: '状态',
     households: '家庭',
     invites: '邀请码',

@@ -21,9 +21,10 @@ import {
   saveMemberToken,
   saveServiceUrl,
 } from '../storage/session'
+import { isAppRuntime } from '../platform'
 import { formatCents, formatMonth, fromLocalDateTimeInput, toLocalDateTimeInput } from '../utils/format'
 
-type View = 'connect' | 'join' | 'overview' | 'expenses' | 'analysis' | 'settings'
+type View = 'overview' | 'expenses' | 'analysis' | 'settings'
 
 type ExpenseForm = {
   categoryId: string
@@ -44,10 +45,12 @@ function createInitialExpenseForm(categoryId = ''): ExpenseForm {
 }
 
 export function DeviceApp() {
+  const appRuntime = isAppRuntime()
   const [activeServiceUrl, setActiveServiceUrl] = useState(loadServiceUrl)
   const [serviceUrlDraft, setServiceUrlDraft] = useState(activeServiceUrl)
   const [token, setToken] = useState(loadMemberToken)
-  const [view, setView] = useState<View>(token ? 'overview' : 'connect')
+  const [validatedToken, setValidatedToken] = useState<string | null>(null)
+  const [view, setView] = useState<View>('overview')
   const [session, setSession] = useState<MemberSession | null>(null)
   const [categories, setCategories] = useState<Category[]>([])
   const [members, setMembers] = useState<Member[]>([])
@@ -70,25 +73,61 @@ export function DeviceApp() {
   const logout = useCallback(() => {
     clearMemberToken()
     setToken(null)
+    setValidatedToken(null)
     setSession(null)
+    setCategories([])
     setMembers([])
     setExpenses([])
     setAnalytics(null)
-    setView('connect')
+    setCategoryFilter('')
+    setMemberFilter('')
+    setExpenseForm(createInitialExpenseForm())
+    setEditingID(null)
+    setView('overview')
+    setStatus('')
+    setError('')
   }, [])
 
   const handleError = useCallback((nextError: unknown) => {
     setError(nextError instanceof Error ? nextError.message : '请求失败')
   }, [])
 
-  const refreshData = useCallback(async (currentToken = token) => {
+  const handleAuthenticatedError = useCallback((nextError: unknown, requestToken: string) => {
+    handleError(nextError)
+    if (nextError instanceof ApiError && nextError.status === 401 && loadMemberToken() === requestToken) {
+      logout()
+    }
+  }, [handleError, logout])
+
+  const validateToken = useCallback(async (currentToken = token) => {
     if (!currentToken) {
       return
     }
-    setLoading(true)
+    const isCurrentToken = () => loadMemberToken() === currentToken
     setError('')
     try {
       const nextSession = await getMe(activeServiceUrl, currentToken)
+      if (!isCurrentToken()) {
+        return
+      }
+      setSession(nextSession)
+      setValidatedToken(currentToken)
+    } catch (nextError) {
+      if (!isCurrentToken()) {
+        return
+      }
+      handleAuthenticatedError(nextError, currentToken)
+    }
+  }, [activeServiceUrl, handleAuthenticatedError, token])
+
+  const refreshData = useCallback(async (currentToken = token, currentSession = session) => {
+    if (!currentToken || !currentSession) {
+      return
+    }
+    const isCurrentToken = () => loadMemberToken() === currentToken
+    setLoading(true)
+    setError('')
+    try {
       const filter = {
         month,
         categoryId: Number(categoryFilter) || undefined,
@@ -96,31 +135,40 @@ export function DeviceApp() {
       }
       const [nextCategories, nextMembers, nextExpenses, nextAnalytics] = await Promise.all([
         getCategories(activeServiceUrl, currentToken),
-        listHouseholdMembers(activeServiceUrl, currentToken, nextSession.household.id),
+        listHouseholdMembers(activeServiceUrl, currentToken, currentSession.household.id),
         getExpenses(activeServiceUrl, currentToken, filter),
         getMonthlyAnalytics(activeServiceUrl, currentToken, month),
       ])
-      setSession(nextSession)
+      if (!isCurrentToken()) {
+        return
+      }
       setCategories(nextCategories)
       setMembers(nextMembers)
       setExpenses(nextExpenses)
       setAnalytics(nextAnalytics)
     } catch (nextError) {
-      handleError(nextError)
-      if (nextError instanceof ApiError && nextError.status === 401) {
-        logout()
+      if (!isCurrentToken()) {
+        return
       }
+      handleAuthenticatedError(nextError, currentToken)
     } finally {
       setLoading(false)
     }
-  }, [activeServiceUrl, categoryFilter, handleError, logout, memberFilter, month, token])
+  }, [activeServiceUrl, categoryFilter, handleAuthenticatedError, memberFilter, month, session, token])
 
   useEffect(() => {
-    if (!token) {
+    if (!token || validatedToken === token) {
       return
     }
-    void Promise.resolve().then(() => refreshData(token))
-  }, [refreshData, token])
+    void Promise.resolve().then(() => validateToken(token))
+  }, [token, validateToken, validatedToken])
+
+  useEffect(() => {
+    if (!token || validatedToken !== token || !session) {
+      return
+    }
+    void Promise.resolve().then(() => refreshData(token, session))
+  }, [refreshData, session, token, validatedToken])
 
   async function connect(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -128,10 +176,13 @@ export function DeviceApp() {
     setError('')
     try {
       await health(serviceUrlDraft)
+      const serviceUrlChanged = serviceUrlDraft !== activeServiceUrl
       saveServiceUrl(serviceUrlDraft)
       setActiveServiceUrl(serviceUrlDraft)
+      if (serviceUrlChanged && token) {
+        logout()
+      }
       setStatus('服务已连接')
-      setView(token ? 'overview' : 'join')
     } catch (nextError) {
       handleError(nextError)
     } finally {
@@ -149,6 +200,7 @@ export function DeviceApp() {
       saveMemberToken(result.token)
       setToken(result.token)
       setSession({ household: result.household, member: result.member })
+      setValidatedToken(result.token)
       setStatus('已加入家庭')
       setView('overview')
     } catch (nextError) {
@@ -184,7 +236,7 @@ export function DeviceApp() {
       await refreshData(token)
       setView('expenses')
     } catch (nextError) {
-      handleError(nextError)
+      handleAuthenticatedError(nextError, token)
     } finally {
       setLoading(false)
     }
@@ -201,7 +253,7 @@ export function DeviceApp() {
       setStatus('支出已删除')
       await refreshData(token)
     } catch (nextError) {
-      handleError(nextError)
+      handleAuthenticatedError(nextError, token)
     } finally {
       setLoading(false)
     }
@@ -219,6 +271,43 @@ export function DeviceApp() {
     setView('expenses')
   }
 
+  if (!token || validatedToken !== token || !session) {
+    return (
+      <main className="app-shell public-shell">
+        <section className="public-entry" aria-labelledby="device-public-title">
+          <p className="eyebrow">家庭账本</p>
+          <h1 id="device-public-title">加入家庭账本</h1>
+          <p className="entry-copy">输入家人分享的邀请码，开始记录家庭支出。</p>
+
+          {error && <p className="error" role="alert">{error}</p>}
+          {status && !error && <p className="status" aria-live="polite">{status}</p>}
+
+          {appRuntime && (
+            <form className="form-grid service-panel" onSubmit={connect}>
+              <label>
+                <span>服务地址</span>
+                <input value={serviceUrlDraft} onChange={(event) => setServiceUrlDraft(event.target.value)} />
+              </label>
+              <button type="submit" className="secondary" disabled={loading}>连接</button>
+            </form>
+          )}
+
+          <form className="form-grid" onSubmit={join}>
+            <label>
+              <span>邀请码</span>
+              <input value={inviteCode} onChange={(event) => setInviteCode(event.target.value)} />
+            </label>
+            <label>
+              <span>昵称</span>
+              <input value={nickname} onChange={(event) => setNickname(event.target.value)} />
+            </label>
+            <button type="submit" disabled={loading}>加入</button>
+          </form>
+        </section>
+      </main>
+    )
+  }
+
   return (
     <main className="app-shell">
       <section className="workspace">
@@ -234,7 +323,7 @@ export function DeviceApp() {
         </header>
 
         <nav className="mobile-nav" aria-label="设备端导航">
-          {(['connect', 'join', 'overview', 'expenses', 'analysis', 'settings'] as View[]).map((item) => (
+          {(['overview', 'expenses', 'analysis', 'settings'] as View[]).map((item) => (
             <button
               type="button"
               key={item}
@@ -246,44 +335,8 @@ export function DeviceApp() {
           ))}
         </nav>
 
-        {error && <p className="error">{error}</p>}
-        {status && !error && <p className="status">{status}</p>}
-
-        {view === 'connect' && (
-          <section className="panel">
-            <div className="panel-header">
-              <h2>服务连接</h2>
-              <span>{loading ? '连接中' : 'API 地址'}</span>
-            </div>
-            <form className="form-grid" onSubmit={connect}>
-              <label>
-                <span>服务地址</span>
-                <input value={serviceUrlDraft} onChange={(event) => setServiceUrlDraft(event.target.value)} />
-              </label>
-              <button type="submit" disabled={loading}>连接</button>
-            </form>
-          </section>
-        )}
-
-        {view === 'join' && (
-          <section className="panel">
-            <div className="panel-header">
-              <h2>加入家庭</h2>
-              <span>邀请码</span>
-            </div>
-            <form className="form-grid" onSubmit={join}>
-              <label>
-                <span>邀请码</span>
-                <input value={inviteCode} onChange={(event) => setInviteCode(event.target.value)} />
-              </label>
-              <label>
-                <span>昵称</span>
-                <input value={nickname} onChange={(event) => setNickname(event.target.value)} />
-              </label>
-              <button type="submit" disabled={loading}>加入</button>
-            </form>
-          </section>
-        )}
+        {error && <p className="error" role="alert">{error}</p>}
+        {status && !error && <p className="status" aria-live="polite">{status}</p>}
 
         {view === 'overview' && (
           <section className="metric-grid">
@@ -368,11 +421,15 @@ export function DeviceApp() {
               <span>{session?.member.nickname || '未登录'}</span>
             </div>
             <form className="form-grid" onSubmit={connect}>
-              <label>
-                <span>服务地址</span>
-                <input value={serviceUrlDraft} onChange={(event) => setServiceUrlDraft(event.target.value)} />
-              </label>
-              <button type="submit" disabled={loading}>保存并测试</button>
+              {appRuntime && (
+                <>
+                  <label>
+                    <span>服务地址</span>
+                    <input value={serviceUrlDraft} onChange={(event) => setServiceUrlDraft(event.target.value)} />
+                  </label>
+                  <button type="submit" disabled={loading}>保存并测试</button>
+                </>
+              )}
               <button type="button" className="secondary" onClick={logout}>退出设备</button>
             </form>
           </section>
@@ -606,8 +663,6 @@ function buildExpenseInput(form: ExpenseForm): ExpenseInput | null {
 
 function viewLabel(view: View) {
   const labels: Record<View, string> = {
-    connect: '连接',
-    join: '加入',
     overview: '概览',
     expenses: '支出',
     analysis: '分析',
